@@ -76,6 +76,7 @@ public class RunOrchestrator {
 
     public void execute(long runId, CancellationToken cancel) {
         Run run = store.getRun(runId);
+        if (run.getStatus() != RunStatus.QUEUED && run.getStatus() != RunStatus.RUNNING) return;
         Path hostDir = props.workspaceRoot().resolve(run.getProjectId());
         try (GitWorkspace git = GitWorkspace.openOrInit(hostDir)) {
             boolean resumed = run.getStartedAt() != null;
