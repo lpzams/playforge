@@ -1,0 +1,7 @@
+workspaces/
+backend/data/
+backend/target/
+.idea/
+*.iml
+node_modules/
+.superpowers/
