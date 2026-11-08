@@ -17,7 +17,7 @@ public class LocalSandboxProvider implements SandboxProvider {
     private final Path root;
 
     public LocalSandboxProvider(PlayforgeProperties props) {
-        this.root = props.workspaceRoot();
+        this.root = props.workspaceDir();
     }
 
     @Override

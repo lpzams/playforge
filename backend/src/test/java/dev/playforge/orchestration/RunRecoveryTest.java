@@ -49,7 +49,7 @@ class RunRecoveryTest {
         Run run = store.createRun(store.createProject("t", "躲陨石").getId(), "躲陨石");
         store.markRunStarted(run.getId(), null);
         Step code = store.startStep(run.getId(), StepType.CODE, 0, StepTrigger.NONE);
-        Path dir = props.workspaceRoot().resolve(run.getProjectId());
+        Path dir = props.workspaceDir().resolve(run.getProjectId());
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("main.js"), "// from before the crash");
         store.completeStep(code.getId(), null, "{\"finalText\":\"done\"}");

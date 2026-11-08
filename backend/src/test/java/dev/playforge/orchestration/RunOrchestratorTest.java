@@ -76,7 +76,7 @@ class RunOrchestratorTest {
 
         assertThat(run.getStatus()).isEqualTo(RunStatus.SUCCEEDED);
         assertThat(stepTypes(run)).containsExactly(StepType.CODE, StepType.REVIEW, StepType.PLAYTEST, StepType.COMMIT);
-        try (GitWorkspace ws = GitWorkspace.openOrInit(props.workspaceRoot().resolve(run.getProjectId()))) {
+        try (GitWorkspace ws = GitWorkspace.openOrInit(props.workspaceDir().resolve(run.getProjectId()))) {
             assertThat(run.getResultCommit()).isNotBlank().isEqualTo(ws.head().orElseThrow());
         }
         List<RunEventType> types = eventTypes(run);
