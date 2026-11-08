@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:pf;MODE=MySQL;DB_CLOSE_DELAY=-1
+
+playforge:
+  workspace-root: ${java.io.tmpdir}/playforge-test-workspaces
+  orchestration:
+    retry-base-delay: 10ms
+  recovery:
+    enabled: false

@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: playforge
+  datasource:
+    url: jdbc:h2:file:./data/playforge;MODE=MySQL
+    username: sa
+    password: ""
+  flyway:
+    enabled: true
+
+playforge:
+  workspace-root: ../workspaces
+  orchestration:
+    max-review-rounds: 3
+    max-playtest-fixes: 2
+    step-timeout: 10m
+    run-timeout: 30m
+    max-engine-retries: 3
+    retry-base-delay: 30s
+  engines:
+    coder: demo
+    reviewer: demo
