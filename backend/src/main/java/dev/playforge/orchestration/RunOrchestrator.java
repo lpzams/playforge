@@ -28,6 +28,7 @@ import dev.playforge.run.StepType;
 import dev.playforge.sandbox.Sandbox;
 import dev.playforge.sandbox.SandboxProvider;
 import dev.playforge.workspace.GitWorkspace;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,13 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Executes a run step by step: asks {@link RunPlanner} for the next step, runs it, records the result,
@@ -57,6 +65,7 @@ public class RunOrchestrator {
     private final PlayforgeProperties props;
     private final ObjectMapper json;
     private final RunPlanner planner;
+    private final ExecutorService watchdog = Executors.newVirtualThreadPerTaskExecutor();
 
     public RunOrchestrator(RunStore store, RunEventPublisher events, EngineRegistry engines, SandboxProvider sandboxes,
                            Playtester playtester, PlayforgeProperties props, ObjectMapper json) {
@@ -71,8 +80,12 @@ public class RunOrchestrator {
         this.planner = new RunPlanner(o.maxReviewRounds(), o.maxPlaytestFixes());
     }
 
-    /** Context of one execution; lives for the duration of {@link #execute}. */
-    private record Ctx(Run run, String baseCommit, Path hostDir, GitWorkspace git, Sandbox sandbox, CancellationToken cancel) {}
+    /**
+     * Context of one execution; lives for the duration of {@link #execute}. {@code execStart} is when this
+     * execution began: the run timeout budget is per execution, so downtime before a resume doesn't count.
+     */
+    private record Ctx(Run run, String baseCommit, Path hostDir, GitWorkspace git, Sandbox sandbox,
+                       CancellationToken cancel, Instant execStart) {}
 
     public void execute(long runId, CancellationToken cancel) {
         Run run = store.getRun(runId);
@@ -80,24 +93,29 @@ public class RunOrchestrator {
         Path hostDir = props.workspaceDir().resolve(run.getProjectId());
         try (GitWorkspace git = GitWorkspace.openOrInit(hostDir)) {
             boolean resumed = run.getStartedAt() != null;
+            if (!resumed) git.discardUncommittedChanges(); // drop leftovers of an earlier failed/cancelled run
             String base = resumed ? run.getBaseCommit() : git.head().orElse(null);
             if (!resumed) store.markRunStarted(runId, base);
             events.publish(runId, RunEventType.RUN_STARTED, SYSTEM, mapOf("resumed", resumed, "baseCommit", base));
 
-            Instant startedAt = resumed ? run.getStartedAt() : Instant.now();
             try (Sandbox sandbox = sandboxes.acquire(run.getProjectId())) {
                 sandbox.syncIn(hostDir);
-                loop(new Ctx(run, base, hostDir, git, sandbox, cancel), startedAt);
+                loop(new Ctx(run, base, hostDir, git, sandbox, cancel, Instant.now()));
             }
         } catch (CancelledException e) {
-            finish(runId, RunStatus.CANCELLED, "cancelled", null);
+            if (cancel.isShutdown()) {
+                // Leave the run and its interrupted step RUNNING so RunRecovery resumes them on next start.
+                log.info("run {} interrupted by shutdown; will resume on restart", runId);
+            } else {
+                finish(runId, RunStatus.CANCELLED, "cancelled", null);
+            }
         } catch (RuntimeException e) {
             log.error("run {} crashed", runId, e);
             finish(runId, RunStatus.FAILED, "internal error: " + e.getMessage(), null);
         }
     }
 
-    private void loop(Ctx ctx, Instant startedAt) {
+    private void loop(Ctx ctx) {
         long runId = ctx.run().getId();
         while (true) {
             List<Step> history = store.listSteps(runId);
@@ -108,7 +126,7 @@ public class RunOrchestrator {
                 return;
             }
             ctx.cancel().throwIfCancelled();
-            if (Duration.between(startedAt, Instant.now()).compareTo(props.orchestration().runTimeout()) > 0) {
+            if (remainingRunBudget(ctx).isNegative() || remainingRunBudget(ctx).isZero()) {
                 finish(runId, RunStatus.FAILED, "run timeout", null);
                 return;
             }
@@ -121,7 +139,7 @@ public class RunOrchestrator {
                 runStep(ctx, step, history);
                 events.publish(runId, RunEventType.STEP_FINISHED, SYSTEM, mapOf("stepId", step.getId(), "status", StepStatus.DONE));
             } catch (CancelledException e) {
-                store.failStep(step.getId(), "cancelled");
+                if (!ctx.cancel().isShutdown()) store.failStep(step.getId(), "cancelled");
                 throw e;
             } catch (EngineException | RuntimeException e) {
                 store.failStep(step.getId(), e.getMessage());
@@ -161,7 +179,7 @@ public class RunOrchestrator {
                 store.completeStep(step.getId(), !report.hasBlockers(), write(report));
             }
             case PLAYTEST -> {
-                PlaytestReport report = playtester.run(ctx.sandbox(), ctx.cancel());
+                PlaytestReport report = guarded(ctx, "playtest", t -> playtester.run(ctx.sandbox(), t));
                 events.publish(ctx.run().getId(), RunEventType.PLAYTEST_RESULT, SYSTEM,
                         mapOf("passed", report.passed(), "failures", report.failures()));
                 store.completeStep(step.getId(), report.passed(), write(report));
@@ -181,7 +199,8 @@ public class RunOrchestrator {
         for (int attempt = 1; ; attempt++) {
             ctx.cancel().throwIfCancelled();
             try {
-                return engine.run(req, ctx.sandbox(), (type, payload) -> events.publish(runId, type, engine.name(), payload), ctx.cancel());
+                return guarded(ctx, engine.name(),
+                        t -> engine.run(req, ctx.sandbox(), (type, payload) -> events.publish(runId, type, engine.name(), payload), t));
             } catch (EngineException e) {
                 if (!e.retryable() || attempt > o.maxEngineRetries()) throw e;
                 Duration delay = e.retryAfter().orElse(o.retryBaseDelay().multipliedBy(1L << (attempt - 1)));
@@ -190,6 +209,60 @@ public class RunOrchestrator {
                 sleep(delay, ctx.cancel());
             }
         }
+    }
+
+    @FunctionalInterface
+    private interface GuardedCall<T> {
+        T call(CancellationToken stepToken) throws EngineException;
+    }
+
+    /**
+     * Runs an engine/playtester call on its own virtual thread with a hard deadline of
+     * min(stepTimeout, remaining run budget). The call gets a step-scoped token that is cancelled on
+     * timeout or when the run is cancelled/shut down; if the call ignores it, we stop waiting anyway.
+     * A timeout is a non-retryable failure, not a cancellation.
+     */
+    private <T> T guarded(Ctx ctx, String what, GuardedCall<T> call) throws EngineException {
+        Duration stepTimeout = props.orchestration().stepTimeout();
+        Duration remaining = remainingRunBudget(ctx);
+        Duration budget = remaining.compareTo(stepTimeout) < 0 ? remaining : stepTimeout;
+        if (budget.isNegative() || budget.isZero()) budget = Duration.ofMillis(1);
+
+        CancellationToken stepToken = new CancellationToken();
+        Future<T> future = watchdog.submit(() -> call.call(stepToken));
+        ctx.cancel().onCancel(() -> {
+            if (ctx.cancel().isShutdown()) stepToken.shutdown();
+            else stepToken.cancel();
+            future.cancel(true);
+        });
+        try {
+            return future.get(budget.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            stepToken.cancel();
+            future.cancel(true);
+            if (ctx.cancel().isCancelled()) throw new CancelledException();
+            throw new EngineException(what + " timed out after " + budget.toMillis() + " ms", false, null);
+        } catch (CancellationException e) {
+            throw new CancelledException();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CancelledException();
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof EngineException ee) throw ee;
+            if (cause instanceof RuntimeException re) throw re;
+            if (cause instanceof Error err) throw err;
+            throw new IllegalStateException(what + " failed", cause);
+        }
+    }
+
+    private Duration remainingRunBudget(Ctx ctx) {
+        return props.orchestration().runTimeout().minus(Duration.between(ctx.execStart(), Instant.now()));
+    }
+
+    @PreDestroy
+    void closeWatchdog() {
+        watchdog.shutdownNow();
     }
 
     private static void sleep(Duration d, CancellationToken cancel) {

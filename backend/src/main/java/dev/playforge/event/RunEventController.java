@@ -1,6 +1,9 @@
 package dev.playforge.event;
 
+import dev.playforge.run.RunStore;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -8,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.NoSuchElementException;
 
 /**
  * SSE stream of a run's events. Replays history after {@code Last-Event-ID}, then streams live events,
@@ -17,14 +21,22 @@ import java.io.IOException;
 public class RunEventController {
 
     private final RunEventPublisher publisher;
+    private final RunStore store;
 
-    public RunEventController(RunEventPublisher publisher) {
+    public RunEventController(RunEventPublisher publisher, RunStore store) {
         this.publisher = publisher;
+        this.store = store;
     }
 
     @GetMapping(path = "/api/runs/{runId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(@PathVariable long runId,
                              @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId) {
+        try {
+            store.getRun(runId);
+        } catch (NoSuchElementException e) {
+            // ResponseStatusException -> plain 404 (a JSON error body can't be written for text/event-stream)
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
         SseEmitter emitter = new SseEmitter(0L);
         Stream stream = new Stream(emitter, parseSeq(lastEventId));
 

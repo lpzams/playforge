@@ -38,15 +38,20 @@ public class OrchestrationTestConfig {
     public static class ScriptedPlaytester implements Playtester {
         public final Queue<PlaytestReport> script = new ConcurrentLinkedQueue<>();
         public final AtomicInteger calls = new AtomicInteger();
+        /** Optional hook run at the start of each playtest (e.g. to simulate a hang). */
+        public volatile Runnable onRun;
 
         public void reset() {
             script.clear();
             calls.set(0);
+            onRun = null;
         }
 
         @Override
         public PlaytestReport run(Sandbox sandbox, CancellationToken cancel) {
             calls.incrementAndGet();
+            Runnable hook = onRun;
+            if (hook != null) hook.run();
             PlaytestReport r = script.poll();
             return r != null ? r : new PlaytestReport(true, List.of(), Map.of());
         }

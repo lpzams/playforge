@@ -16,6 +16,7 @@ import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /** Runs each run on its own virtual thread; at most one execution per run at a time. */
 @Service
@@ -71,9 +72,17 @@ public class RunExecutor {
         return active.containsKey(runId);
     }
 
+    /**
+     * Process shutdown: signal in-flight runs with {@link CancellationToken#shutdown()} so they stop without
+     * writing a terminal state (RunRecovery resumes them on next start), and wait briefly so their last DB
+     * writes land before the datasource closes.
+     */
     @PreDestroy
-    void shutdown() {
-        active.values().forEach(CancellationToken::cancel);
+    void shutdown() throws InterruptedException {
+        active.values().forEach(CancellationToken::shutdown);
         pool.shutdown();
+        if (!pool.awaitTermination(10, TimeUnit.SECONDS)) {
+            log.warn("{} run(s) did not stop within 10s of shutdown", active.size());
+        }
     }
 }

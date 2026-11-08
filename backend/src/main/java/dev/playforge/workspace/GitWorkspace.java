@@ -1,6 +1,7 @@
 package dev.playforge.workspace;
 
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.ResetCommand;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffFormatter;
@@ -78,10 +79,23 @@ public final class GitWorkspace implements AutoCloseable {
             if (head.isPresent() && status.isClean()) return head.get();
             git.add().addFilepattern(".").call();
             git.add().addFilepattern(".").setUpdate(true).call();
-            return git.commit().setMessage(message).setAuthor(IDENT).setCommitter(IDENT).setSign(false)
+            return git.commit().setMessage(message).setAuthor(IDENT).setCommitter(IDENT).setSign(false).setNoVerify(true)
                     .call().getName();
         } catch (GitAPIException e) {
             throw new IllegalStateException("git commit failed", e);
+        }
+    }
+
+    /**
+     * Restores tracked files to HEAD and deletes untracked, non-ignored files (ignored ones such as
+     * node_modules are kept). Used before a new run so leftovers of a failed run are not folded into it.
+     */
+    public void discardUncommittedChanges() {
+        try {
+            if (head().isPresent()) git.reset().setMode(ResetCommand.ResetType.HARD).call();
+            git.clean().setCleanDirectories(true).setIgnore(true).call();
+        } catch (GitAPIException e) {
+            throw new IllegalStateException("git reset/clean failed", e);
         }
     }
 

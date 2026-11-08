@@ -61,6 +61,13 @@ class RunEventControllerTest {
     }
 
     @Test
+    void unknownRunIs404() throws Exception {
+        HttpResponse<String> res = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/runs/987654321/events"))
+                .header("Accept", "text/event-stream").timeout(Duration.ofSeconds(5)).build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(res.statusCode()).isEqualTo(404);
+    }
+
+    @Test
     void streamsLiveThenCompletes() throws Exception {
         long run = newRun();
         CompletableFuture<List<String>> ids = readIds(run, null);

@@ -8,8 +8,11 @@ import dev.playforge.event.RunEventPublisher;
 import dev.playforge.event.RunEventType;
 import dev.playforge.orchestration.OrchestrationTestConfig.ScriptedPlaytester;
 import dev.playforge.playtest.PlaytestReport;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import dev.playforge.run.Run;
+import dev.playforge.run.RunMapper;
 import dev.playforge.run.RunStatus;
+import dev.playforge.run.StepStatus;
 import dev.playforge.run.RunStore;
 import dev.playforge.run.Step;
 import dev.playforge.run.StepTrigger;
@@ -22,6 +25,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.nio.file.Files;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -45,6 +51,7 @@ class RunOrchestratorTest {
     @Autowired ScriptedEngine scriptedCoder;
     @Autowired ScriptedEngine scriptedReviewer;
     @Autowired ScriptedPlaytester playtester;
+    @Autowired RunMapper runMapper;
 
     @BeforeEach
     void reset() {
@@ -185,6 +192,59 @@ class RunOrchestratorTest {
         assertThat(fix.getTrigger()).isEqualTo(StepTrigger.PLAYTEST);
         assertThat(scriptedCoder.calls.getLast().prompt()).contains("no canvas");
         assertThat(playtester.calls).hasValue(2);
+    }
+
+    @Test
+    void shutdownLeavesRunResumable() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        scriptedCoder.script.add((r, s, k, c) -> {
+            started.countDown();
+            CountDownLatch stopped = new CountDownLatch(1);
+            c.onCancel(stopped::countDown);
+            stopped.await(10, TimeUnit.SECONDS);
+            c.throwIfCancelled();
+            return text("unreachable");
+        });
+        Run run = newRun();
+        CancellationToken token = new CancellationToken();
+        CompletableFuture<Void> f = CompletableFuture.runAsync(() -> orchestrator.execute(run.getId(), token));
+        assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+        token.shutdown();
+        f.get(10, TimeUnit.SECONDS);
+
+        assertThat(store.getRun(run.getId()).getStatus()).isEqualTo(RunStatus.RUNNING);
+        assertThat(store.listSteps(run.getId())).singleElement()
+                .satisfies(s -> assertThat(s.getStatus()).isEqualTo(StepStatus.RUNNING));
+        assertThat(eventTypes(run)).doesNotContain(RunEventType.RUN_FINISHED);
+
+        orchestrator.execute(run.getId(), new CancellationToken());
+        assertThat(store.getRun(run.getId()).getStatus()).isEqualTo(RunStatus.SUCCEEDED);
+    }
+
+    @Test
+    void resumeLongAfterStartIsNotTimedOut() {
+        Run run = newRun();
+        store.markRunStarted(run.getId(), null);
+        runMapper.update(new LambdaUpdateWrapper<Run>().eq(Run::getId, run.getId())
+                .set(Run::getStartedAt, Instant.now().minus(Duration.ofHours(8))));
+
+        assertThat(execute(run).getStatus()).isEqualTo(RunStatus.SUCCEEDED);
+    }
+
+    @Test
+    void followUpRunAfterFailedRunStartsClean() throws Exception {
+        Run first = newRun();
+        scriptedCoder.script.add((r, s, k, c) -> {
+            Files.writeString(s.workdir().resolve("leftover.js"), "bad");
+            throw new EngineException("bad credentials", false, null);
+        });
+        assertThat(execute(first).getStatus()).isEqualTo(RunStatus.FAILED);
+
+        Run second = execute(store.createRun(first.getProjectId(), "换个玩法"));
+
+        assertThat(second.getStatus()).isEqualTo(RunStatus.SUCCEEDED);
+        assertThat(scriptedReviewer.calls.getLast().prompt()).doesNotContain("leftover.js");
+        assertThat(props.workspaceDir().resolve(first.getProjectId()).resolve("leftover.js")).doesNotExist();
     }
 
     @Test

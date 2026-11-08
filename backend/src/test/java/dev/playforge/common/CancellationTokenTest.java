@@ -30,6 +30,21 @@ class CancellationTokenTest {
     }
 
     @Test
+    void shutdownCancelsAndIsDistinguishable() {
+        CancellationToken t = new CancellationToken();
+        AtomicInteger calls = new AtomicInteger();
+        t.onCancel(calls::incrementAndGet);
+        t.shutdown();
+        assertThat(t.isCancelled()).isTrue();
+        assertThat(t.isShutdown()).isTrue();
+        assertThat(calls).hasValue(1);
+
+        CancellationToken u = new CancellationToken();
+        u.cancel();
+        assertThat(u.isShutdown()).isFalse();
+    }
+
+    @Test
     void throwIfCancelled() {
         CancellationToken t = new CancellationToken();
         t.throwIfCancelled();

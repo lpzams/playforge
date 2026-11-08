@@ -53,6 +53,48 @@ class GitWorkspaceTest {
     }
 
     @Test
+    void discardUncommittedChangesRestoresHeadAndRemovesUntracked() throws Exception {
+        try (GitWorkspace ws = GitWorkspace.openOrInit(dir)) {
+            Files.writeString(dir.resolve(".gitignore"), "node_modules/\n");
+            Files.writeString(dir.resolve("a.txt"), "hello");
+            String head = ws.commitAll("first");
+            Files.writeString(dir.resolve("a.txt"), "changed");
+            Files.createDirectories(dir.resolve("src"));
+            Files.writeString(dir.resolve("src/leftover.js"), "x");
+            Files.createDirectories(dir.resolve("node_modules"));
+            Files.writeString(dir.resolve("node_modules/dep.js"), "keep me");
+
+            ws.discardUncommittedChanges();
+
+            assertThat(Files.readString(dir.resolve("a.txt"))).isEqualTo("hello");
+            assertThat(dir.resolve("src/leftover.js")).doesNotExist();
+            assertThat(dir.resolve("node_modules/dep.js")).exists();
+            assertThat(ws.diffWorkingTree(head)).isEmpty();
+        }
+    }
+
+    @Test
+    void discardWithoutHeadRemovesUntracked() throws Exception {
+        try (GitWorkspace ws = GitWorkspace.openOrInit(dir)) {
+            Files.writeString(dir.resolve("leftover.js"), "x");
+            ws.discardUncommittedChanges();
+            assertThat(dir.resolve("leftover.js")).doesNotExist();
+        }
+    }
+
+    @Test
+    void commitIgnoresRepositoryHooks() throws Exception {
+        try (GitWorkspace ws = GitWorkspace.openOrInit(dir)) {
+            Path hook = dir.resolve(".git/hooks/pre-commit");
+            Files.createDirectories(hook.getParent());
+            Files.writeString(hook, "#!/bin/sh\nexit 1\n");
+            hook.toFile().setExecutable(true);
+            Files.writeString(dir.resolve("a.txt"), "hello");
+            assertThat(ws.commitAll("first")).matches("[0-9a-f]{40}");
+        }
+    }
+
+    @Test
     void commitStagesDeletions() throws Exception {
         try (GitWorkspace ws = GitWorkspace.openOrInit(dir)) {
             Files.writeString(dir.resolve("a.txt"), "hello");
