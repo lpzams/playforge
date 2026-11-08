@@ -54,6 +54,10 @@ class RunRecoveryTest {
         Files.writeString(dir.resolve("main.js"), "// from before the crash");
         store.completeStep(code.getId(), null, "{\"finalText\":\"done\"}");
         store.startStep(run.getId(), StepType.REVIEW, 0, StepTrigger.NONE);
+        // The in-memory DB is shared with other test classes; leave only this crash scene unfinished.
+        store.findUnfinishedRuns().stream()
+                .filter(r -> !r.getId().equals(run.getId()))
+                .forEach(r -> store.finishRun(r.getId(), RunStatus.CANCELLED, "test isolation", null));
 
         new RunRecovery(store, executor).recover();
 
