@@ -44,6 +44,21 @@ class GitWorkspaceTest {
     }
 
     @Test
+    void diffExcludesLockfilesAndBinaries() throws Exception {
+        try (GitWorkspace ws = GitWorkspace.openOrInit(dir)) {
+            Files.writeString(dir.resolve("package-lock.json"), "{\"lockfileVersion\":3}");
+            Files.writeString(dir.resolve("yarn.lock"), "# yarn");
+            Files.write(dir.resolve("logo.png"), new byte[]{(byte) 0x89, 'P', 'N', 'G', 0, 0, 0, 13, 1, 2, 0});
+            Files.writeString(dir.resolve("main.js"), "console.log('hi')");
+
+            String diff = ws.diffWorkingTree(null);
+
+            assertThat(diff).contains("main.js")
+                    .doesNotContain("package-lock.json").doesNotContain("yarn.lock").doesNotContain("logo.png");
+        }
+    }
+
+    @Test
     void commitWithoutChangesReturnsHead() throws Exception {
         try (GitWorkspace ws = GitWorkspace.openOrInit(dir)) {
             Files.writeString(dir.resolve("a.txt"), "hello");

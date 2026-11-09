@@ -92,6 +92,14 @@ public final class PromptTemplates {
                 {"issues":[{"severity":"BLOCKER|SUGGESTION","file":"path","line":123,"message":"..."}]}
                 BLOCKER = the game is broken, the request is not fulfilled, or the probe API is missing/wrong.
                 SUGGESTION = nice-to-have improvement. Return {"issues":[]} when there is nothing to report.
-                """.formatted(instruction, diff.isBlank() ? "(no changes)" : diff);
+                """.formatted(instruction, diff.isBlank() ? "(no changes)" : truncateDiff(diff));
+    }
+
+    /** Keeps review prompts within model context: diffs longer than this are cut. */
+    static final int MAX_REVIEW_DIFF_CHARS = 60_000;
+
+    private static String truncateDiff(String diff) {
+        if (diff.length() <= MAX_REVIEW_DIFF_CHARS) return diff;
+        return diff.substring(0, MAX_REVIEW_DIFF_CHARS) + "\n[diff truncated]";
     }
 }

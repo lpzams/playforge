@@ -4,7 +4,9 @@ import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ResetCommand;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.diff.RawText;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.PersonIdent;
@@ -18,15 +20,19 @@ import org.eclipse.jgit.treewalk.filter.NotIgnoredFilter;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /** A project's git repository on the host. One repo per game project. */
 public final class GitWorkspace implements AutoCloseable {
 
+    private static final Set<String> LOCKFILES = Set.of("package-lock.json", "pnpm-lock.yaml", "yarn.lock");
     private static final PersonIdent IDENT = new PersonIdent("PlayForge", "playforge@localhost");
 
     private final Git git;
@@ -63,11 +69,28 @@ public final class GitWorkspace implements AutoCloseable {
         try (DiffFormatter fmt = new DiffFormatter(out)) {
             fmt.setRepository(repo);
             fmt.setPathFilter(new NotIgnoredFilter(1));
-            fmt.format(fmt.scan(baseTree(repo, baseCommit), new FileTreeIterator(repo)));
+            List<DiffEntry> entries = fmt.scan(baseTree(repo, baseCommit), new FileTreeIterator(repo)).stream()
+                    .filter(e -> !excludedFromDiff(repo, e))
+                    .toList();
+            fmt.format(entries);
             fmt.flush();
             return out.toString(StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Lockfiles and binary files add noise (and tokens) to reviews without being reviewable. */
+    private static boolean excludedFromDiff(Repository repo, DiffEntry e) {
+        String path = e.getChangeType() == DiffEntry.ChangeType.DELETE ? e.getOldPath() : e.getNewPath();
+        String name = path.substring(path.lastIndexOf('/') + 1);
+        if (LOCKFILES.contains(name)) return true;
+        if (e.getChangeType() == DiffEntry.ChangeType.DELETE) return false;
+        Path file = repo.getWorkTree().toPath().resolve(path);
+        try (InputStream in = Files.newInputStream(file)) {
+            return RawText.isBinary(in.readNBytes(8000));
+        } catch (IOException ex) {
+            return false;
         }
     }
 
