@@ -62,6 +62,10 @@ public class CliDockerOps implements DockerOps {
                 env.put(containerVar, value);
             }
         });
+        spec.labels().forEach((k, v) -> {
+            cmd.add("--label");
+            cmd.add(k + "=" + v);
+        });
         for (DockerRunSpec.Mount m : spec.mounts()) {
             cmd.add("--mount");
             cmd.add("type=bind,source=" + m.source() + ",target=" + m.target() + ",readonly");
@@ -117,6 +121,24 @@ public class CliDockerOps implements DockerOps {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    @Override
+    public int removeLabeled(Map<String, String> labels) {
+        List<String> ps = new ArrayList<>(List.of(docker, "ps", "-aq"));
+        labels.forEach((k, v) -> {
+            ps.add("--filter");
+            ps.add("label=" + k + "=" + v);
+        });
+        List<String> ids = new ArrayList<>();
+        runner.run(ps, Map.of(), null, SHORT, new CancellationToken(), l -> {
+            if (!l.isBlank()) ids.add(l.trim());
+        });
+        if (ids.isEmpty()) return 0;
+        List<String> rm = new ArrayList<>(List.of(docker, "rm", "-f"));
+        rm.addAll(ids);
+        runner.run(rm, Map.of(), null, RUN, new CancellationToken(), l -> { });
+        return ids.size();
     }
 
     private static void check(ExecResult r, String what) {

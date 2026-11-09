@@ -38,7 +38,7 @@ class DockerSandboxIntegrationTest {
     void setUp() {
         ops = new CliDockerOps(new ProcessRunner(), "docker", System::getenv);
         assumeTrue(ops.available(), "Docker is not available");
-        pool = new ContainerPool(ops, new DockerRunSpec("playforge-sandbox:p2", Map.of(), List.of(), "2", "4g", 512), 1);
+        pool = new ContainerPool(ops, new DockerRunSpec("playforge-sandbox:p2", Map.of(), List.of(), "2", "4g", 512, Map.of()), 1);
         pool.start();
     }
 

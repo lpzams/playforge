@@ -46,7 +46,7 @@ class CliDockerOpsTest {
     static final DockerRunSpec SPEC = new DockerRunSpec("playforge-sandbox:p2",
             Map.of("CLAUDE_CODE_OAUTH_TOKEN", "PLAYFORGE_CLAUDE_TOKEN"),
             List.of(new DockerRunSpec.Mount("C:\\Users\\泽泽\\.codex\\auth.json", "/mnt/creds/codex/auth.json")),
-            "2", "4g", 512);
+            "2", "4g", 512, Map.of("playforge.pool", "app"));
 
     final RecordingRunner runner = new RecordingRunner();
     final CliDockerOps ops = new CliDockerOps(runner, "docker",
@@ -71,6 +71,29 @@ class CliDockerOpsTest {
                 .contains("--cpus 2").contains("--memory 4g").contains("--pids-limit 512")
                 .contains("--mount type=bind,source=C:\\Users\\泽泽\\.codex\\auth.json,target=/mnt/creds/codex/auth.json,readonly")
                 .endsWith("playforge-sandbox:p2");
+    }
+
+    @Test
+    void runCommandHasPoolLabel() {
+        ops.runDetached(SPEC);
+        assertThat(String.join(" ", runner.cmds.getFirst())).contains("--label playforge.pool=app");
+    }
+
+    @Test
+    void removeLabeledListsThenRemoves() {
+        runner.stdout = "id1\nid2\n";
+        int removed = ops.removeLabeled(Map.of("playforge.pool", "app"));
+
+        assertThat(removed).isEqualTo(2);
+        assertThat(runner.cmds.get(0)).containsExactly("docker", "ps", "-aq", "--filter", "label=playforge.pool=app");
+        assertThat(runner.cmds.get(1)).containsExactly("docker", "rm", "-f", "id1", "id2");
+    }
+
+    @Test
+    void removeLabeledWithNothingToRemoveRunsNoRm() {
+        runner.stdout = "";
+        assertThat(ops.removeLabeled(Map.of("playforge.pool", "app"))).isZero();
+        assertThat(runner.cmds).hasSize(1);
     }
 
     @Test

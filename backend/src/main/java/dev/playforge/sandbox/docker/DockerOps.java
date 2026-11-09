@@ -31,4 +31,7 @@ public interface DockerOps {
     void remove(String containerId);
 
     boolean healthy(String containerId);
+
+    /** Force-removes every container carrying all of these labels; returns how many were removed. */
+    int removeLabeled(java.util.Map<String, String> labels);
 }

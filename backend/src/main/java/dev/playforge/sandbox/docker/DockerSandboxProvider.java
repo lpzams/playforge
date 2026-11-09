@@ -21,6 +21,8 @@ import java.util.Map;
 public class DockerSandboxProvider implements SandboxProvider {
 
     static final String CODEX_AUTH_TARGET = "/mnt/creds/codex/auth.json";
+    /** Marks containers owned by the application's pool, so a restart can remove ones a hard stop left behind. */
+    static final String POOL_LABEL = "playforge.pool";
 
     private final PlayforgeProperties.SandboxConfig config;
     private final DockerOps ops;
@@ -33,8 +35,9 @@ public class DockerSandboxProvider implements SandboxProvider {
                 ? List.of(new DockerRunSpec.Mount(Path.of(config.codexAuthFile()).toAbsolutePath().toString(), CODEX_AUTH_TARGET))
                 : List.of();
         DockerRunSpec spec = new DockerRunSpec(config.image(),
-                Map.of("CLAUDE_CODE_OAUTH_TOKEN", "PLAYFORGE_CLAUDE_TOKEN"), mounts, "2", "4g", 512);
-        this.pool = new ContainerPool(ops, spec, config.poolSize());
+                Map.of("CLAUDE_CODE_OAUTH_TOKEN", "PLAYFORGE_CLAUDE_TOKEN"), mounts, "2", "4g", 512,
+                Map.of(POOL_LABEL, "app"));
+        this.pool = new ContainerPool(ops, spec, config.poolSize(), true);
     }
 
     @PostConstruct

@@ -28,12 +28,22 @@ public class ContainerPool {
     private final Set<String> all = ConcurrentHashMap.newKeySet();
     private final AtomicInteger creating = new AtomicInteger();
     private final ExecutorService background = Executors.newVirtualThreadPerTaskExecutor();
+    private final boolean sweepOnStart;
     private volatile boolean stopped;
 
     public ContainerPool(DockerOps ops, DockerRunSpec spec, int size) {
+        this(ops, spec, size, false);
+    }
+
+    /**
+     * @param sweepOnStart remove containers carrying this pool's labels before warming up. They were left by
+     *                     a previous process that was killed without shutdown (e.g. an IDE hard stop).
+     */
+    public ContainerPool(DockerOps ops, DockerRunSpec spec, int size, boolean sweepOnStart) {
         this.ops = ops;
         this.spec = spec;
         this.size = size;
+        this.sweepOnStart = sweepOnStart;
     }
 
     /** Starts warming up asynchronously. Never throws: Docker may come up later. */
@@ -42,6 +52,14 @@ public class ContainerPool {
             if (!ops.available()) {
                 log.warn("Docker is not available; sandbox pool will warm up on first use");
                 return;
+            }
+            if (sweepOnStart && !spec.labels().isEmpty()) {
+                try {
+                    int n = ops.removeLabeled(spec.labels());
+                    if (n > 0) log.info("removed {} sandbox container(s) left by a previous run", n);
+                } catch (RuntimeException e) {
+                    log.warn("could not remove leftover sandbox containers: {}", e.getMessage());
+                }
             }
             replenish();
         });

@@ -9,9 +9,10 @@ import java.util.Map;
  * @param envFromHost container variable name → host variable name. Only names reach the docker command line;
  *                    values travel through the docker client's environment.
  * @param mounts      read-only bind mounts
+ * @param labels      container labels; used to find containers left behind by a previous process
  */
 public record DockerRunSpec(String image, Map<String, String> envFromHost, List<Mount> mounts,
-                            String cpus, String memory, int pidsLimit) {
+                            String cpus, String memory, int pidsLimit, Map<String, String> labels) {
 
     public record Mount(String source, String target) {}
 }

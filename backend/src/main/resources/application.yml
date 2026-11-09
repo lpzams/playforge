@@ -1,3 +1,6 @@
+server:
+  port: 8090   # 8080 is commonly taken by other local Java apps
+
 spring:
   application:
     name: playforge
