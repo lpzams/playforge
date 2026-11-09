@@ -1,0 +1,8 @@
+# Real engines: Claude Code CLI (coder) + Codex CLI (reviewer) in the Docker sandbox pool.
+# Needs Docker running, the playforge-sandbox:p2 image, PLAYFORGE_CLAUDE_TOKEN and ~/.codex/auth.json.
+playforge:
+  engines:
+    coder: claude
+    reviewer: codex
+  sandbox:
+    provider: docker

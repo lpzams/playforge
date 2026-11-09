@@ -169,6 +169,8 @@ public class RunOrchestrator {
             case REVIEW -> {
                 String diff = ctx.git().diffWorkingTree(ctx.baseCommit());
                 AgentResult r = callEngine(ctx, engines.reviewer(), PromptTemplates.review(instruction, diff));
+                // The reviewer CLI can't be made read-only inside a container: discard anything it changed.
+                ctx.sandbox().syncIn(ctx.hostDir());
                 ReviewReport report = ReviewParser.parse(r.finalText());
                 long runId = ctx.run().getId();
                 if (!report.parsed()) {
