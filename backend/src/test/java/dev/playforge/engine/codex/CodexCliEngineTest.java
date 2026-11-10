@@ -60,6 +60,26 @@ class CodexCliEngineTest {
     }
 
     @Test
+    void recoverableErrorThenTurnCompletedSucceeds() throws Exception {
+        FakeExecSandbox sandbox = new FakeExecSandbox(List.of(
+                "{\"type\":\"error\",\"message\":\"Reconnecting... 1/5\"}",
+                "{\"type\":\"item.completed\",\"item\":{\"id\":\"i1\",\"type\":\"agent_message\",\"text\":\"{\\\"issues\\\":[]}\"}}",
+                "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}"), 0, "");
+        assertThat(run(sandbox, "p").finalText()).isEqualTo("{\"issues\":[]}");
+    }
+
+    @Test
+    void errorWithoutTurnEndIsReportedAndClassified() {
+        FakeExecSandbox sandbox = new FakeExecSandbox(
+                List.of("{\"type\":\"error\",\"message\":\"exceeded retry limit, last status: 429 Too Many Requests\"}"), 1, "");
+        assertThatThrownBy(() -> run(sandbox, "p"))
+                .isInstanceOfSatisfying(EngineException.class, e -> {
+                    assertThat(e.retryable()).isTrue();
+                    assertThat(e.getMessage()).contains("429");
+                });
+    }
+
+    @Test
     void crashWithoutResultIsNotRetryable() {
         FakeExecSandbox sandbox = new FakeExecSandbox(List.of("{\"type\":\"thread.started\"}"), 2, "auth missing");
         assertThatThrownBy(() -> run(sandbox, "p"))

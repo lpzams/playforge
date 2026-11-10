@@ -77,6 +77,51 @@ class ContainerPoolTest {
         assertThat(ops.calls).noneMatch(c -> c.startsWith("removeLabeled"));
     }
 
+    /** After a Docker Desktop restart, warmed containers are gone; acquire must not hand them out. */
+    @Test
+    void acquireSkipsDeadIdleContainers() {
+        pool.start();
+        await().atMost(Duration.ofSeconds(5)).until(() -> pool.idleCount() == 2);
+        ops.unhealthy.addAll(Set.of("c1", "c2"));
+
+        String id = pool.acquire(Duration.ofSeconds(5));
+
+        assertThat(id).isNotIn("c1", "c2");
+        await().atMost(Duration.ofSeconds(5)).until(() -> ops.removed.containsAll(List.of("c1", "c2")));
+    }
+
+    @Test
+    void dockerStoppedAfterWarmupSaysUnavailable() {
+        pool.start();
+        await().atMost(Duration.ofSeconds(5)).until(() -> pool.idleCount() == 2);
+        ops.unhealthy.addAll(Set.of("c1", "c2"));
+        ops.available = false;
+
+        assertThatThrownBy(() -> pool.acquire(Duration.ofSeconds(60)))
+                .isInstanceOf(DockerUnavailableException.class)
+                .hasMessage("Docker is not available");
+    }
+
+    @Test
+    void containerStartFailureIsReportedFast() {
+        FakeDockerOps failing = new FakeDockerOps() {
+            @Override
+            public String runDetached(DockerRunSpec spec) {
+                throw new IllegalStateException("Unable to find image 'img:latest' locally");
+            }
+        };
+        ContainerPool p = new ContainerPool(failing, SPEC, 2);
+        try {
+            long t0 = System.nanoTime();
+            assertThatThrownBy(() -> p.acquire(Duration.ofSeconds(60)))
+                    .isInstanceOf(DockerUnavailableException.class)
+                    .hasMessageContaining("Unable to find image");
+            assertThat(Duration.ofNanos(System.nanoTime() - t0)).isLessThan(Duration.ofSeconds(5));
+        } finally {
+            p.shutdown();
+        }
+    }
+
     @Test
     void startWarmsUpToSize() {
         pool.start();

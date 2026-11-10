@@ -128,6 +128,35 @@ class TarSyncTest {
                 .isInstanceOf(SecurityException.class);
     }
 
+    /** Case-insensitive NTFS: ".GIT/config" would overwrite the host repo's .git/config. */
+    @Test
+    void rejectsGitDirVariantsAndExcludedDirsInAnyCase() throws Exception {
+        Path dst = dir("dst");
+        write(dst.resolve(".git/config"), "original");
+        for (String name : java.util.List.of(".GIT/config", ".git./config", ".git /config", "./.Git/hooks/pre-commit",
+                "src/.git/config", "GIT~1/config", "NODE_MODULES/x.js", "Dist/x.js", "dist./x.js")) {
+            assertThatThrownBy(() -> TarSync.unpackMirror(new ByteArrayInputStream(tarWith(name, false)), dst))
+                    .as(name).isInstanceOf(SecurityException.class);
+        }
+        assertThat(Files.readString(dst.resolve(".git/config"))).isEqualTo("original");
+    }
+
+    @Test
+    void rejectsWindowsHostileNames() throws Exception {
+        Path dst = dir("dst");
+        for (String name : java.util.List.of("src/a:b.js", "CON", "src/aux.js", "src/what?.js")) {
+            assertThatThrownBy(() -> TarSync.unpackMirror(new ByteArrayInputStream(tarWith(name, false)), dst))
+                    .as(name).isInstanceOf(SecurityException.class);
+        }
+    }
+
+    @Test
+    void acceptsDotSlashPrefixedEntriesFromGnuTar() throws Exception {
+        Path dst = dir("dst");
+        TarSync.unpackMirror(new ByteArrayInputStream(tarWith("./src/main.js", false)), dst);
+        assertThat(Files.readString(dst.resolve("src/main.js"))).isEqualTo("evil");
+    }
+
     @Test
     void rejectsSymlinkEntry() throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();

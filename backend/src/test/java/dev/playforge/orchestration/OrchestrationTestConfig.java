@@ -29,6 +29,14 @@ public class OrchestrationTestConfig {
         return new ScriptedEngine("scripted", AgentRole.REVIEWER);
     }
 
+    public static final String TEST_SECRET = "test-secret-token-0123456789";
+
+    @Bean
+    @Primary
+    dev.playforge.engine.SecretRedactor testSecretRedactor() {
+        return new dev.playforge.engine.SecretRedactor(List.of(TEST_SECRET));
+    }
+
     @Bean
     @Primary
     ScriptedPlaytester scriptedPlaytester() {

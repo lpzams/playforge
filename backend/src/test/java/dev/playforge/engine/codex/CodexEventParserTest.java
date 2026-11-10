@@ -47,10 +47,17 @@ class CodexEventParserTest {
     }
 
     @Test
-    void errorEventsBecomeErrorFinal() {
-        assertThat(new CodexEventParser().parse("{\"type\":\"error\",\"message\":\"stream error: rate limit\"}"))
-                .containsExactly(new StreamEvent.Final("stream error: rate limit", true));
+    void turnFailedIsErrorFinal() {
         assertThat(new CodexEventParser().parse("{\"type\":\"turn.failed\",\"error\":{\"message\":\"boom\"}}"))
                 .containsExactly(new StreamEvent.Final("boom", true));
+    }
+
+    /** Codex emits recoverable "error" events (e.g. reconnecting); they must not end the turn. */
+    @Test
+    void errorEventIsNotTerminal() {
+        CodexEventParser parser = new CodexEventParser();
+        List<StreamEvent> events = parser.parse("{\"type\":\"error\",\"message\":\"Reconnecting... 1/5\"}");
+        assertThat(events).noneMatch(e -> e instanceof StreamEvent.Final);
+        assertThat(parser.lastError()).isEqualTo("Reconnecting... 1/5");
     }
 }

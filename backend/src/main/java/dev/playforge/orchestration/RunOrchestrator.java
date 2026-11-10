@@ -10,6 +10,7 @@ import dev.playforge.engine.AgentRequest;
 import dev.playforge.engine.AgentResult;
 import dev.playforge.engine.EngineException;
 import dev.playforge.engine.EngineRegistry;
+import dev.playforge.engine.SecretRedactor;
 import dev.playforge.event.RunEventPublisher;
 import dev.playforge.event.RunEventType;
 import dev.playforge.orchestration.PlanDecision.Execute;
@@ -64,11 +65,13 @@ public class RunOrchestrator {
     private final Playtester playtester;
     private final PlayforgeProperties props;
     private final ObjectMapper json;
+    private final SecretRedactor redactor;
     private final RunPlanner planner;
     private final ExecutorService watchdog = Executors.newVirtualThreadPerTaskExecutor();
 
     public RunOrchestrator(RunStore store, RunEventPublisher events, EngineRegistry engines, SandboxProvider sandboxes,
-                           Playtester playtester, PlayforgeProperties props, ObjectMapper json) {
+                           Playtester playtester, PlayforgeProperties props, ObjectMapper json,
+                           SecretRedactor redactor) {
         this.store = store;
         this.events = events;
         this.engines = engines;
@@ -76,6 +79,7 @@ public class RunOrchestrator {
         this.playtester = playtester;
         this.props = props;
         this.json = json;
+        this.redactor = redactor;
         PlayforgeProperties.Orchestration o = props.orchestration();
         this.planner = new RunPlanner(o.maxReviewRounds(), o.maxPlaytestFixes());
     }
@@ -202,7 +206,7 @@ public class RunOrchestrator {
             ctx.cancel().throwIfCancelled();
             try {
                 return guarded(ctx, engine.name(),
-                        t -> engine.run(req, ctx.sandbox(), (type, payload) -> events.publish(runId, type, engine.name(), payload), t));
+                        t -> engine.run(req, ctx.sandbox(), (type, payload) -> events.publish(runId, type, engine.name(), redactor.redact(payload)), t));
             } catch (EngineException e) {
                 if (!e.retryable() || attempt > o.maxEngineRetries()) throw e;
                 Duration delay = e.retryAfter().orElse(o.retryBaseDelay().multipliedBy(1L << (attempt - 1)));

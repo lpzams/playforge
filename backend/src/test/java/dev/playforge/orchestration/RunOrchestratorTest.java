@@ -248,6 +248,19 @@ class RunOrchestratorTest {
     }
 
     @Test
+    void secretsInEngineOutputAreRedactedBeforePublishing() {
+        scriptedCoder.script.add((r, s, k, c) -> {
+            k.emit(RunEventType.TOOL_RESULT, Map.of("summary", "CLAUDE_CODE_OAUTH_TOKEN=" + OrchestrationTestConfig.TEST_SECRET));
+            return text("done");
+        });
+        Run run = execute(newRun());
+
+        assertThat(events.history(run.getId(), 0).toString())
+                .doesNotContain(OrchestrationTestConfig.TEST_SECRET)
+                .contains("CLAUDE_CODE_OAUTH_TOKEN=[REDACTED]");
+    }
+
+    @Test
     void promptPassedToEngineUnchanged() {
         String instruction = "做一个\"躲陨石\"游戏\n第二行 C:\\path 'x' $HOME `cmd`";
         Run run = store.createRun(store.createProject("t", instruction).getId(), instruction);

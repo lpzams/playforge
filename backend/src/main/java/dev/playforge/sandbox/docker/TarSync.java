@@ -27,6 +27,11 @@ public final class TarSync {
 
     static final Set<String> EXCLUDED_DIRS = Set.of("node_modules", "dist", ".git");
 
+    /** Git's own path rules for hostile names: .git variants, GIT~1, NTFS/HFS tricks, reserved names, ':' etc. */
+    private static final org.eclipse.jgit.lib.ObjectChecker PATH_CHECKER = new org.eclipse.jgit.lib.ObjectChecker()
+            .setSafeForWindows(true)
+            .setSafeForMacOS(true);
+
     private TarSync() {
     }
 
@@ -145,11 +150,31 @@ public final class TarSync {
         for (String seg : n.split("/")) {
             if (seg.equals("..")) throw new SecurityException("path traversal in archive: " + name);
         }
+        String rel = stripDotSlash(n);
+        if (!rel.isEmpty()) {
+            // The host may be case-insensitive and ignore trailing dots/spaces (NTFS): ".GIT/" or ".git./" would
+            // land in the host repo's .git. Never trust the container-side tar --exclude for this.
+            String first = rel.split("/")[0].replaceAll("[. ]+$", "").toLowerCase(java.util.Locale.ROOT);
+            if (EXCLUDED_DIRS.contains(first)) throw new SecurityException("excluded directory in archive: " + name);
+            try {
+                PATH_CHECKER.checkPath(rel);
+            } catch (org.eclipse.jgit.errors.CorruptObjectException e) {
+                throw new SecurityException("unsafe path in archive: " + name + " (" + e.getMessage() + ")");
+            }
+        }
         Path target = root.resolve(n).normalize();
         if (!target.startsWith(root)) {
             throw new SecurityException("entry escapes target directory: " + name);
         }
         return target;
+    }
+
+    /** "./src/a.js" → "src/a.js", "./" → "", trailing "/" removed. */
+    private static String stripDotSlash(String n) {
+        String s = n;
+        while (s.startsWith("./")) s = s.substring(2);
+        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s.equals(".") ? "" : s;
     }
 
     private static TarArchiveInputStream open(Path tarFile) throws IOException {

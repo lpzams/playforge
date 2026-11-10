@@ -59,9 +59,7 @@ public class CodexCliEngine implements AgentEngine {
                             usage[0] = u;
                             sink.emit(RunEventType.USAGE, Map.of("inputTokens", u.inputTokens(), "outputTokens", u.outputTokens()));
                         }
-                        case StreamEvent.Final f -> {
-                            if (fin[0] == null || !fin[0].isError()) fin[0] = f; // keep the first error
-                        }
+                        case StreamEvent.Final f -> fin[0] = f; // turn.completed / turn.failed
                     }
                 }
             });
@@ -70,6 +68,9 @@ public class CodexCliEngine implements AgentEngine {
         }
         Duration elapsed = Duration.ofNanos(System.nanoTime() - t0);
 
+        if (fin[0] == null && parser.lastError() != null) {
+            throw EngineErrors.fromErrorText("codex", parser.lastError());
+        }
         if (fin[0] == null) {
             throw new EngineException("codex exited with code " + exec.exitCode() + " without a result: "
                     + exec.stderrTail().strip(), false, null);

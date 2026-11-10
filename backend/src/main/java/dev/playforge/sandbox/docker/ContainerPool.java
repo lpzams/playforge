@@ -30,6 +30,8 @@ public class ContainerPool {
     private final ExecutorService background = Executors.newVirtualThreadPerTaskExecutor();
     private final boolean sweepOnStart;
     private volatile boolean stopped;
+    /** Message of the most recent failed {@code docker run}; cleared on success. */
+    private volatile String lastCreateError;
 
     public ContainerPool(DockerOps ops, DockerRunSpec spec, int size) {
         this(ops, spec, size, false);
@@ -66,22 +68,38 @@ public class ContainerPool {
     }
 
     public String acquire(Duration timeout) {
-        String id = idle.poll();
-        if (id == null) {
-            if (!ops.available()) throw new DockerUnavailableException("Docker is not available");
-            replenish();
-            try {
-                id = idle.poll(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new DockerUnavailableException("interrupted while waiting for a sandbox container");
-            }
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (true) {
+            String id = idle.poll();
             if (id == null) {
-                throw new DockerUnavailableException("no sandbox container became ready within " + timeout.toSeconds() + "s");
+                if (!ops.available()) throw new DockerUnavailableException("Docker is not available");
+                replenish(); // synchronous: a start failure is known before we wait
+                if (idle.isEmpty() && creating.get() == 0 && lastCreateError != null) {
+                    throw new DockerUnavailableException("cannot start a sandbox container: " + lastCreateError);
+                }
+                long left = deadline - System.nanoTime();
+                try {
+                    id = left > 0 ? idle.poll(left, TimeUnit.NANOSECONDS) : null;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new DockerUnavailableException("interrupted while waiting for a sandbox container");
+                }
+                if (id == null) {
+                    String cause = lastCreateError == null ? "" : " (last error: " + lastCreateError + ")";
+                    throw new DockerUnavailableException("no sandbox container became ready within "
+                            + timeout.toSeconds() + "s" + cause);
+                }
             }
+            // Warm containers die with Docker Desktop restarts; never hand out a dead one.
+            if (ops.healthy(id)) {
+                background.submit(this::replenish);
+                return id;
+            }
+            log.warn("idle sandbox container {} is gone; discarding it", id);
+            all.remove(id);
+            String dead = id;
+            background.submit(() -> safeRemove(dead));
         }
-        background.submit(this::replenish);
-        return id;
     }
 
     /** Destroys a used container and refills the pool. */
@@ -136,6 +154,7 @@ public class ContainerPool {
             }
             try {
                 String id = ops.runDetached(spec);
+                lastCreateError = null;
                 all.add(id);
                 if (stopped) {
                     safeRemove(id);
@@ -143,6 +162,7 @@ public class ContainerPool {
                 }
                 idle.add(id);
             } catch (RuntimeException e) {
+                lastCreateError = e.getMessage();
                 log.warn("could not start a sandbox container: {}", e.getMessage());
                 return;
             } finally {

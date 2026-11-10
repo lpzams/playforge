@@ -17,6 +17,13 @@ public final class CodexEventParser {
     private static final ObjectMapper JSON = new ObjectMapper();
     private String lastAgentMessage = "";
 
+    private String lastError;
+
+    /** Message of the last {@code error} event, or null. Errors are not terminal: Codex may recover. */
+    public String lastError() {
+        return lastError;
+    }
+
     public List<StreamEvent> parse(String line) {
         JsonNode n = read(line);
         if (n == null) return List.of();
@@ -49,7 +56,10 @@ public final class CodexEventParser {
                 out.add(new StreamEvent.Final(lastAgentMessage, false));
             }
             case "turn.failed" -> out.add(new StreamEvent.Final(n.path("error").path("message").asText("turn failed"), true));
-            case "error" -> out.add(new StreamEvent.Final(n.path("message").asText("error"), true));
+            case "error" -> {
+                lastError = n.path("message").asText("error");
+                out.add(new StreamEvent.Text("[codex error] " + lastError));
+            }
             default -> { }
         }
         return out;
