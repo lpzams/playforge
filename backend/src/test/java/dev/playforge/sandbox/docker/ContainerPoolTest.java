@@ -43,6 +43,7 @@ class ContainerPoolTest {
         }
         @Override public void copyIn(String id, Path hostDir) { }
         @Override public void copyOut(String id, Path hostDir) { }
+        @Override public void copyDirOut(String id, String rel, Path hostDir) { }
         @Override public void remove(String id) { removed.add(id); }
         @Override public boolean healthy(String id) { return !unhealthy.contains(id); }
     }

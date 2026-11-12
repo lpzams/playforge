@@ -52,6 +52,11 @@ public class DockerSandbox implements Sandbox {
     }
 
     @Override
+    public void exportDir(String relativePath, Path hostDir) {
+        ops.copyDirOut(containerId, relativePath, hostDir);
+    }
+
+    @Override
     public void close() {
         if (closed.compareAndSet(false, true)) pool.discard(containerId);
     }

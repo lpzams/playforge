@@ -61,6 +61,10 @@ public class FakeExecSandbox implements Sandbox {
     }
 
     @Override
+    public void exportDir(String relativePath, Path hostDir) {
+    }
+
+    @Override
     public void close() {
     }
 }

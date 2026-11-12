@@ -38,7 +38,7 @@ class DockerSandboxIntegrationTest {
     void setUp() {
         ops = new CliDockerOps(new ProcessRunner(), "docker", System::getenv);
         assumeTrue(ops.available(), "Docker is not available");
-        pool = new ContainerPool(ops, new DockerRunSpec("playforge-sandbox:p2", Map.of(), List.of(), "2", "4g", 512, Map.of()), 1);
+        pool = new ContainerPool(ops, new DockerRunSpec("playforge-sandbox:p3", Map.of(), List.of(), "2", "4g", 512, Map.of()), 1);
         pool.start();
     }
 
@@ -87,7 +87,63 @@ class DockerSandboxIntegrationTest {
             sandbox.syncIn(host);
             List<String> out = new CopyOnWriteArrayList<>();
             sandbox.exec(List.of("ls", "-A"), null, Duration.ofSeconds(20), new CancellationToken(), out::add);
-            assertThat(out).containsExactly("a.txt");
+            assertThat(out).contains("a.txt").doesNotContain("extra.txt");
+        } finally {
+            sandbox.close();
+        }
+    }
+
+    int exec(DockerSandbox sandbox, String script, List<String> out) {
+        return sandbox.exec(List.of("sh", "-c", script), null, Duration.ofSeconds(120), new CancellationToken(), out::add).exitCode();
+    }
+
+    @Test
+    void emptyWorkspaceGetsTemplate() {
+        DockerSandbox sandbox = new DockerSandbox(pool.acquire(Duration.ofSeconds(60)), pool, ops);
+        try {
+            sandbox.syncIn(host);
+            assertThat(exec(sandbox, "test -f package.json && test -d node_modules && test -f src/probe-sdk.js", new CopyOnWriteArrayList<>())).isZero();
+        } finally {
+            sandbox.close();
+        }
+    }
+
+    @Test
+    void existingProjectKeepsItsFilesButGetsNodeModules() throws Exception {
+        Files.writeString(host.resolve("package.json"), "{\"name\":\"mine\"}");
+        DockerSandbox sandbox = new DockerSandbox(pool.acquire(Duration.ofSeconds(60)), pool, ops);
+        try {
+            sandbox.syncIn(host);
+            List<String> out = new CopyOnWriteArrayList<>();
+            assertThat(exec(sandbox, "cat package.json && test -d node_modules && test ! -e src/probe-sdk.js", out)).isZero();
+            assertThat(String.join("", out)).contains("mine");
+        } finally {
+            sandbox.close();
+        }
+    }
+
+    @Test
+    void exportDirMirrorsDist() {
+        DockerSandbox sandbox = new DockerSandbox(pool.acquire(Duration.ofSeconds(60)), pool, ops);
+        try {
+            sandbox.syncIn(host);
+            assertThat(exec(sandbox, "npm run build", new CopyOnWriteArrayList<>())).isZero();
+            Path out = host.resolveSibling(host.getFileName() + "-preview");
+            sandbox.exportDir("dist", out);
+            assertThat(out.resolve("index.html")).exists();
+            assertThat(out.resolve("assets")).isDirectory();
+        } finally {
+            sandbox.close();
+        }
+    }
+
+    @Test
+    void exportMissingDirFails() {
+        DockerSandbox sandbox = new DockerSandbox(pool.acquire(Duration.ofSeconds(60)), pool, ops);
+        try {
+            sandbox.syncIn(host);
+            assertThatThrownBy(() -> sandbox.exportDir("nope", host.resolveSibling("x")))
+                    .isInstanceOf(IllegalStateException.class);
         } finally {
             sandbox.close();
         }

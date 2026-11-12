@@ -27,6 +27,13 @@ public interface DockerOps {
     /** Makes hostDir mirror /workspace (excluding node_modules, dist, .git). */
     void copyOut(String containerId, Path hostDir);
 
+    /**
+     * Makes hostDir mirror /workspace/&lt;relativePath&gt;.
+     * @throws IllegalArgumentException if relativePath is absolute or contains ".."
+     * @throws IllegalStateException    if the directory does not exist in the container
+     */
+    void copyDirOut(String containerId, String relativePath, Path hostDir);
+
     /** {@code docker rm -f}; a missing container is not an error. */
     void remove(String containerId);
 

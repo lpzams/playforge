@@ -57,6 +57,17 @@ public class LocalSandboxProvider implements SandboxProvider {
             }
 
             @Override
+            public void exportDir(String relativePath, Path hostDir) {
+                Path src = dir.resolve(relativePath).normalize();
+                if (!src.startsWith(dir) || !Files.isDirectory(src)) {
+                    throw new IllegalStateException("no such directory in sandbox: " + relativePath);
+                }
+                java.io.ByteArrayOutputStream tar = new java.io.ByteArrayOutputStream();
+                dev.playforge.sandbox.docker.TarSync.pack(src, tar);
+                dev.playforge.sandbox.docker.TarSync.unpackMirror(new java.io.ByteArrayInputStream(tar.toByteArray()), hostDir);
+            }
+
+            @Override
             public void close() {
             }
         };

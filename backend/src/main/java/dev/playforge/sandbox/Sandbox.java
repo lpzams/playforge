@@ -23,6 +23,12 @@ public interface Sandbox extends AutoCloseable {
     /** Runs a command in the sandbox working directory; {@code stdin} may be null. */
     ExecResult exec(List<String> cmd, String stdin, Duration timeout, CancellationToken cancel, Consumer<String> stdoutLine);
 
+    /**
+     * Mirrors a directory of the sandbox working directory (e.g. "dist") to a host directory.
+     * @throws IllegalStateException if the directory does not exist in the sandbox
+     */
+    void exportDir(String relativePath, Path hostDir);
+
     @Override
     void close();
 }

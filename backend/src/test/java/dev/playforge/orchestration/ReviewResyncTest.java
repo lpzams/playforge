@@ -54,6 +54,7 @@ class ReviewResyncTest {
                                                      CancellationToken cancel, Consumer<String> out) {
                         return inner.exec(cmd, stdin, timeout, cancel, out);
                     }
+                    @Override public void exportDir(String rel, Path hostDir) { LOG.add("exportDir " + rel); }
                     @Override public void close() { LOG.add("close"); }
                 };
             };

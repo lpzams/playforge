@@ -22,9 +22,16 @@ public class CliDockerOps implements DockerOps {
     private static final Duration RUN = Duration.ofSeconds(60);
     private static final Duration COPY = Duration.ofSeconds(120);
     private static final String WORKSPACE = "/workspace";
+    /**
+     * Mirror the host tree into /workspace, then seed from the image's template: a project without
+     * package.json gets the whole starter; any project without node_modules gets the preinstalled ones.
+     */
     private static final String CLEAR_WORKSPACE =
             "find /workspace -mindepth 1 -maxdepth 1 ! -name node_modules ! -name dist ! -name .git -exec rm -rf {} + ; "
-                    + "tar -x -C /workspace";
+                    + "tar -x -C /workspace"
+                    + " && cd /workspace"
+                    + " && { [ -f package.json ] || cp -a /template/. /workspace/; }"
+                    + " && { [ -d node_modules ] || cp -a /template/node_modules /workspace/node_modules; }";
 
     private final ProcessRunner runner;
     private final String docker;
@@ -105,6 +112,23 @@ public class CliDockerOps implements DockerOps {
                         "--exclude=./node_modules", "--exclude=./dist", "--exclude=./.git", "."),
                 null, tar, COPY, new CancellationToken());
         check(r, "copy out of container");
+        TarSync.unpackMirror(new ByteArrayInputStream(tar.toByteArray()), hostDir);
+    }
+
+    @Override
+    public void copyDirOut(String containerId, String relativePath, Path hostDir) {
+        String rel = relativePath.replace('\\', '/');
+        if (rel.isBlank() || rel.startsWith("/") || java.util.Arrays.asList(rel.split("/")).contains("..")) {
+            throw new IllegalArgumentException("path must be relative to /workspace: " + relativePath);
+        }
+        String dir = WORKSPACE + "/" + rel;
+        ExecResult exists = runner.run(List.of(docker, "exec", containerId, "test", "-d", dir), Map.of(), null,
+                SHORT, new CancellationToken(), l -> { });
+        if (exists.exitCode() != 0) throw new IllegalStateException("no such directory in sandbox: " + rel);
+        ByteArrayOutputStream tar = new ByteArrayOutputStream();
+        ExecResult r = runner.runBinary(List.of(docker, "exec", containerId, "tar", "-c", "-C", dir, "."),
+                null, tar, COPY, new CancellationToken());
+        check(r, "copy " + rel + " out of container");
         TarSync.unpackMirror(new ByteArrayInputStream(tar.toByteArray()), hostDir);
     }
 

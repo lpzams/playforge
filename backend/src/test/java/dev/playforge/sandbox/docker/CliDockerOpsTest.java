@@ -104,6 +104,21 @@ class CliDockerOpsTest {
     }
 
     @Test
+    void copyInSeedsTemplate(@org.junit.jupiter.api.io.TempDir java.nio.file.Path host) {
+        ops.copyIn("abc123", host);
+        String script = String.join(" ", runner.cmds.getFirst());
+        assertThat(script).contains("cp -a /template/. /workspace/").contains("/template/node_modules");
+    }
+
+    @Test
+    void exportRejectsPathsOutsideWorkspace(@org.junit.jupiter.api.io.TempDir java.nio.file.Path host) {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ops.copyDirOut("abc123", "../etc", host))
+                .isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ops.copyDirOut("abc123", "/etc", host))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void execUsesWorkspaceAndStdin() {
         byte[] stdin = "做一个\"游戏\"".getBytes(StandardCharsets.UTF_8);
         ops.exec("abc123", List.of("claude", "-p"), stdin, Duration.ofSeconds(5), new CancellationToken(), l -> { });
