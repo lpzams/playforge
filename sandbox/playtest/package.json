@@ -1,0 +1,10 @@
+{
+  "name": "playforge-playtest",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.49.1",
+    "pngjs": "7.0.0"
+  }
+}

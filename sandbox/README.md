@@ -1,13 +1,13 @@
 # PlayForge 沙箱镜像
 
-每个 Run 在一个独立容器里执行。容器内同时装有 Claude Code CLI（写代码）和 Codex CLI（审查），以非 root 用户 `node` 运行，工作目录为 `/workspace`。
+每个 Run 在一个独立容器里执行。容器内装有 Claude Code CLI（写代码）、Codex CLI（审查）、游戏模板 `/template`（Vite + 探针 SDK，依赖已预装，断网可构建）和试玩脚本 `/opt/playtest`（Playwright + Chromium）。以非 root 用户 `node` 运行，工作目录为 `/workspace`。镜像约 3.6 GB。
 
 ## 构建
 
 ```bash
-docker build -t playforge-sandbox:p2 sandbox
+docker build -t playforge-sandbox:p3 sandbox
 # 国内网络慢时可换 npm 源：
-docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com/ -t playforge-sandbox:p2 sandbox
+docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com/ -t playforge-sandbox:p3 sandbox
 ```
 
 ## 凭证
