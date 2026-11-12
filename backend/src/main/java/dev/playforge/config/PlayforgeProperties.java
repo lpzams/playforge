@@ -12,7 +12,7 @@ import java.time.Duration;
  */
 @ConfigurationProperties("playforge")
 public record PlayforgeProperties(String workspaceRoot, Orchestration orchestration, Engines engines,
-                                  SandboxConfig sandbox) {
+                                  SandboxConfig sandbox, String previewRoot) {
 
     public record Orchestration(int maxReviewRounds, int maxPlaytestFixes, Duration stepTimeout,
                                 Duration runTimeout, int maxEngineRetries, Duration retryBaseDelay) {}
@@ -25,6 +25,11 @@ public record PlayforgeProperties(String workspaceRoot, Orchestration orchestrat
      */
     public record SandboxConfig(String provider, String image, int poolSize, Duration acquireTimeout,
                                 String codexAuthFile, String dockerCommand) {}
+
+    /** Where built games are published for /preview (one directory per project, outside any git repo). */
+    public Path previewDir() {
+        return Path.of(previewRoot.trim()).toAbsolutePath().normalize();
+    }
 
     /** {@link #workspaceRoot} as an absolute, normalized path. */
     public Path workspaceDir() {

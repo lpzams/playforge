@@ -186,14 +186,28 @@ public class RunOrchestrator {
             }
             case PLAYTEST -> {
                 PlaytestReport report = guarded(ctx, "playtest", t -> playtester.run(ctx.sandbox(), t));
-                events.publish(ctx.run().getId(), RunEventType.PLAYTEST_RESULT, SYSTEM,
-                        mapOf("passed", report.passed(), "failures", report.failures()));
+                long runId = ctx.run().getId();
+                events.publish(runId, RunEventType.PLAYTEST_RESULT, SYSTEM, mapOf("passed", report.passed(),
+                        "failures", report.failures(), "checks", report.details().getOrDefault("checks", List.of())));
+                if (report.passed()) exportPreview(ctx);
                 store.completeStep(step.getId(), report.passed(), write(report));
             }
             case COMMIT -> {
                 String hash = ctx.git().commitAll("run " + ctx.run().getId() + ": " + firstLine(instruction, 72));
                 store.completeStep(step.getId(), null, write(Map.of("commit", hash)));
             }
+        }
+    }
+
+    /** Publishes the build for /preview. Best effort: a failed export is logged, never fails the run. */
+    private void exportPreview(Ctx ctx) {
+        Path target = props.previewDir().resolve(ctx.run().getProjectId());
+        try {
+            ctx.sandbox().exportDir("dist", target);
+        } catch (RuntimeException e) {
+            log.warn("run {}: preview export failed: {}", ctx.run().getId(), e.getMessage());
+            events.publish(ctx.run().getId(), RunEventType.LOG, SYSTEM,
+                    mapOf("message", "preview export failed: " + e.getMessage()));
         }
     }
 

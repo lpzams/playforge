@@ -14,6 +14,12 @@ class PromptTemplatesTest {
     }
 
     @Test
+    void codePromptMentionsTemplateAndProbeSdk() {
+        String p = PromptTemplates.code("x");
+        assertThat(p).contains("src/probe-sdk.js").contains("installProbe").contains("base: './'");
+    }
+
+    @Test
     void reviewKeepsSmallDiffIntact() {
         String review = PromptTemplates.review("p", "+console.log('hi')");
         assertThat(review).contains("+console.log('hi')").doesNotContain("[diff truncated]");

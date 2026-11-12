@@ -13,12 +13,20 @@ public final class PromptTemplates {
 
     private static final String GAME_RULES = """
             Project rules:
-            - The game is a Vite multi-file project (index.html + src/ modules). Keep each concern in its own module.
-            - Every game MUST expose the probe API on window.__GAME_PROBE__ (version 1):
+            - The working directory is a Vite project. A new project starts from a small working starter game
+              (index.html, src/main.js, src/probe-sdk.js, vite.config.js); replace the game, keep the structure.
+              Dependencies are preinstalled (vite, phaser); you may `import Phaser from 'phaser'`.
+            - Keep each concern in its own module under src/.
+            - Do not change vite.config.js: it must keep base: './' (the game is served from a sub-path).
+            - Every game MUST call installProbe() from src/probe-sdk.js (window.__GAME_PROBE__, version 1):
               getState() -> { status: 'loading'|'ready'|'playing'|'paused'|'gameover', score: number,
-                              entities: [{ id, type, x, y }] }, actions: [{ name, keys: [...] }],
-              events: [{ t, type, data }], start(), restart().
-            - Keep the probe state in sync with the real game state; automated playtests rely on it.
+                              entities: [{ id, type, x, y }] }, actions: [{ name, keys: [...] }] (KeyboardEvent.code
+              names such as 'ArrowLeft', 'Space'), start(), restart(). Use probeEvent(type, data) for game events.
+            - Keep the probe in sync with the real game state. An automated playtest builds the game
+              (npm run build), presses every declared action's keys and expects the player's entities (position
+              or count) or the status to change, checks the canvas is not blank, that there are no console
+              errors, and that restart() returns to 'ready' or 'playing'.
+            - Run `npm run build` before you finish and fix any error it reports.
             """;
 
     public static String code(String instruction) {
