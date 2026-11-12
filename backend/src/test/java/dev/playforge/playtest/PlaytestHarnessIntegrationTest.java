@@ -1,0 +1,114 @@
+package dev.playforge.playtest;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.playforge.common.CancellationToken;
+import dev.playforge.process.ExecResult;
+import dev.playforge.process.ProcessRunner;
+import dev.playforge.sandbox.docker.CliDockerOps;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+/** Runs the real playtest harness (run.mjs) in the p3 image against static fixtures. */
+@Tag("docker")
+class PlaytestHarnessIntegrationTest {
+
+    static final String IMAGE = "playforge-sandbox:p3";
+    static final ObjectMapper JSON = new ObjectMapper();
+
+    @BeforeAll
+    static void requireDocker() {
+        assumeTrue(new CliDockerOps(new ProcessRunner(), "docker", System::getenv).available(), "Docker is not available");
+    }
+
+    record Run(JsonNode report, Duration elapsed) {
+        boolean check(String name) {
+            for (JsonNode c : report.path("checks")) if (c.path("name").asText().equals(name)) return c.path("passed").asBoolean();
+            throw new AssertionError("no check named " + name + " in " + report);
+        }
+
+        String detail(String name) {
+            for (JsonNode c : report.path("checks")) if (c.path("name").asText().equals(name)) return c.path("detail").asText();
+            return "";
+        }
+
+        List<String> checkNames() {
+            List<String> names = new ArrayList<>();
+            report.path("checks").forEach(c -> names.add(c.path("name").asText()));
+            return names;
+        }
+    }
+
+    static Run harness(String fixture) throws Exception {
+        List<String> out = new CopyOnWriteArrayList<>();
+        long t0 = System.nanoTime();
+        ExecResult r = new ProcessRunner().run(List.of("docker", "run", "--rm", IMAGE,
+                        "node", "/opt/playtest/run.mjs", "--dist", "/opt/playtest/fixtures/" + fixture),
+                Map.of(), null, Duration.ofSeconds(150), new CancellationToken(), out::add);
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - t0);
+        String last = null;
+        for (String l : out) if (l.startsWith("{\"playtest\":")) last = l;
+        assertThat(last).as("report line; stdout=%s stderr=%s", out, r.stderrTail()).isNotNull();
+        return new Run(JSON.readTree(last), elapsed);
+    }
+
+    @Test
+    void goodFixturePasses() throws Exception {
+        Run run = harness("good");
+        assertThat(run.report().path("passed").asBoolean()).as(run.report().toString()).isTrue();
+        assertThat(run.checkNames()).contains("load", "probe", "no_errors", "not_blank", "action:left", "action:right", "restart");
+        assertThat(run.report().path("failures")).isEmpty();
+    }
+
+    @Test
+    void brokenFixtureReportsError() throws Exception {
+        Run run = harness("broken");
+        assertThat(run.report().path("passed").asBoolean()).isFalse();
+        assertThat(run.check("no_errors")).isFalse();
+        assertThat(run.detail("no_errors")).contains("boom");
+    }
+
+    @Test
+    void noProbeFixture() throws Exception {
+        Run run = harness("noprobe");
+        assertThat(run.check("probe")).isFalse();
+        assertThat(run.detail("probe")).contains("window.__GAME_PROBE__ not found within 10s");
+    }
+
+    @Test
+    void frozenFixture() throws Exception {
+        Run run = harness("frozen");
+        assertThat(run.check("action:left")).isFalse();
+        assertThat(run.check("probe")).isTrue();
+    }
+
+    @Test
+    void blankFixture() throws Exception {
+        Run run = harness("blank");
+        assertThat(run.check("not_blank")).isFalse();
+    }
+
+    @Test
+    void hangFixtureEndsWithinTimeLimit() throws Exception {
+        Run run = harness("hang");
+        assertThat(run.report().path("passed").asBoolean()).isFalse();
+        assertThat(run.elapsed()).isLessThan(Duration.ofSeconds(100));
+    }
+
+    @Test
+    void absoluteAssetsFixtureFails() throws Exception {
+        Run run = harness("absolute-assets");
+        assertThat(run.report().path("passed").asBoolean()).isFalse();
+        assertThat(!run.check("load") || !run.check("no_errors")).isTrue();
+    }
+}

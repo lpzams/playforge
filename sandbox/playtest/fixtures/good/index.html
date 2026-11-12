@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head><meta charset="UTF-8"><title>good</title></head>
+<body style="margin:0;background:#111">
+<canvas id="c" width="320" height="200"></canvas>
+<script>
+  const c = document.getElementById('c'), g = c.getContext('2d');
+  const s = { status: 'ready', score: 0, x: 160 };
+  const keys = new Set();
+  addEventListener('keydown', (e) => { keys.add(e.code); if (e.code === 'Space' && s.status === 'ready') s.status = 'playing'; });
+  addEventListener('keyup', (e) => keys.delete(e.code));
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (s.status === 'playing') {
+      if (keys.has('ArrowLeft')) s.x -= 120 * dt;
+      if (keys.has('ArrowRight')) s.x += 120 * dt;
+      s.score += dt * 10;
+    }
+    g.fillStyle = '#203040'; g.fillRect(0, 0, 320, 200);
+    g.fillStyle = '#ffcc33'; g.fillRect(s.x - 10, 170, 20, 20);
+    g.fillStyle = '#ffffff'; g.fillText('Score ' + Math.floor(s.score), 10, 20);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__GAME_PROBE__ = {
+    version: 1,
+    getState: () => ({ status: s.status, score: Math.floor(s.score), entities: [{ id: 'p', type: 'player', x: Math.round(s.x), y: 170 }] }),
+    actions: [{ name: 'left', keys: ['ArrowLeft'] }, { name: 'right', keys: ['ArrowRight'] }],
+    events: [],
+    start() { if (s.status === 'ready') s.status = 'playing'; },
+    restart() { s.status = 'ready'; s.score = 0; s.x = 160; },
+  };
+</script>
+</body>
+</html>
