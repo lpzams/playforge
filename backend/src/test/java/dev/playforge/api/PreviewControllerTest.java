@@ -1,0 +1,108 @@
+package dev.playforge.api;
+
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class PreviewControllerTest {
+
+    static final Path BASE;
+    static final Path PREVIEWS;
+
+    static {
+        try {
+            BASE = Files.createTempDirectory("pf-preview-test");
+            PREVIEWS = Files.createDirectories(BASE.resolve("previews"));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    @DynamicPropertySource
+    static void previewRoot(DynamicPropertyRegistry r) {
+        r.add("playforge.preview-root", PREVIEWS::toString);
+    }
+
+    @BeforeAll
+    static void files() throws IOException {
+        Path game = Files.createDirectories(PREVIEWS.resolve("abcdefghijkl/assets"));
+        Files.writeString(game.getParent().resolve("index.html"), "<!doctype html><title>game</title>");
+        Files.writeString(game.resolve("main.js"), "console.log('game')");
+        Files.writeString(PREVIEWS.resolve("secret.txt"), "TOP-SECRET-1");
+        Files.writeString(BASE.resolve("secret.txt"), "TOP-SECRET-2");
+    }
+
+    @Autowired
+    MockMvc mvc;
+
+    @Test
+    void servesIndexForTrailingSlash() throws Exception {
+        MvcResult r = mvc.perform(get("/preview/abcdefghijkl/")).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store")).andReturn();
+        assertThat(r.getResponse().getContentType()).startsWith("text/html");
+        assertThat(r.getResponse().getContentAsString()).contains("<title>game</title>");
+    }
+
+    @Test
+    void redirectsWithoutTrailingSlash() throws Exception {
+        mvc.perform(get("/preview/abcdefghijkl")).andExpect(status().isFound())
+                .andExpect(header().string("Location", "/preview/abcdefghijkl/"));
+    }
+
+    @Test
+    void servesAssetWithContentType() throws Exception {
+        MvcResult r = mvc.perform(get("/preview/abcdefghijkl/assets/main.js")).andExpect(status().isOk()).andReturn();
+        assertThat(r.getResponse().getContentType()).contains("javascript");
+        assertThat(r.getResponse().getContentAsString()).contains("console.log('game')");
+    }
+
+    @Test
+    void missingFileIs404() throws Exception {
+        mvc.perform(get("/preview/abcdefghijkl/nope.js")).andExpect(status().isNotFound());
+        mvc.perform(get("/preview/zzzzzzzzzzzz/")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void traversalIs404() throws Exception {
+        for (String url : new String[]{
+                "/preview/abcdefghijkl/../secret.txt",
+                "/preview/abcdefghijkl/%2e%2e/secret.txt",
+                "/preview/abcdefghijkl/..%5csecret.txt",
+                "/preview/abcdefghijkl/assets/../../secret.txt",
+                "/preview/abcdefghijkl/%2e%2e/%2e%2e/secret.txt"}) {
+            MvcResult r = mvc.perform(get(URI.create(url))).andReturn();
+            assertThat(r.getResponse().getStatus()).as(url).isEqualTo(404);
+            assertThat(r.getResponse().getContentAsString()).as(url).doesNotContain("TOP-SECRET");
+        }
+    }
+
+    @Test
+    void badProjectIdIs404() throws Exception {
+        for (String url : new String[]{"/preview/..%2f/secret.txt", "/preview/ABCDEFGHIJKL/", "/preview/abc/"}) {
+            MvcResult r = mvc.perform(get(URI.create(url))).andReturn();
+            assertThat(r.getResponse().getStatus()).as(url).isEqualTo(404);
+            assertThat(r.getResponse().getContentAsString()).as(url).doesNotContain("TOP-SECRET");
+        }
+    }
+}
