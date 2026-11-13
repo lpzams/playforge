@@ -147,6 +147,19 @@ class PlaytestHarnessIntegrationTest {
         assertThat(run.report().toString()).containsIgnoringCase("localStorage");
     }
 
+    /**
+     * Found in live acceptance: a game declared {name:'restart', keys:['Space']} (Space only restarts after game
+     * over). Lifecycle actions are covered by start()/restart(); playing them as controls forced Claude to break
+     * the game design to pass.
+     */
+    @Test
+    void lifecycleActionsAreNotPlayedAsControls() throws Exception {
+        Run run = harness("lifecycle-action");
+        assertThat(run.report().path("passed").asBoolean()).as(run.report().toString()).isTrue();
+        assertThat(run.check("action:restart")).isTrue();
+        assertThat(run.detail("action:restart")).contains("lifecycle");
+    }
+
     @Test
     void absoluteAssetsFixtureFails() throws Exception {
         Run run = harness("absolute-assets");

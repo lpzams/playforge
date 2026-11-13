@@ -22,7 +22,8 @@ class PromptTemplatesTest {
     @Test
     void codePromptExplainsPlaytestEnvironmentLimits() {
         String p = PromptTemplates.code("x");
-        assertThat(p).contains("window.addEventListener").contains("localStorage");
+        assertThat(p).contains("window.addEventListener").contains("localStorage")
+                .contains("Only list in-game controls");
     }
 
     @Test

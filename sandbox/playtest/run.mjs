@@ -15,6 +15,7 @@ const STEP_MS = 5_000;
 const HOLD_MS = 400;
 const BLANK_STDDEV = 2;
 const SAMPLE_MS = 100;
+const LIFECYCLE_ACTIONS = /^(start|restart|reset|retry|pause|resume|unpause|menu|begin|play[\s_-]?again)$/i;
 const MOUNT = '/game/';
 // Same isolation the backend's /preview endpoint applies (PreviewController.PREVIEW_CSP), so that
 // "passes the playtest" implies "works in the preview" (e.g. localStorage throws in both).
@@ -220,6 +221,12 @@ async function main() {
       if (probe.actions.length === 0) check('action:none', false, 'probe declares no actions');
       for (const action of probe.actions) {
         const name = `action:${action.name}`;
+        // Start/restart/pause are lifecycle controls, covered by start()/restart(); playing them as in-game
+        // controls produced false failures that pushed the coder to change the game's design.
+        if (LIFECYCLE_ACTIONS.test(action.name)) {
+          check(name, true, 'lifecycle action (covered by start()/restart()), not played as a control');
+          continue;
+        }
         try {
           let s = await getState();
           if (s.status === 'gameover') {
