@@ -23,14 +23,14 @@ public class CliDockerOps implements DockerOps {
     private static final Duration COPY = Duration.ofSeconds(120);
     private static final String WORKSPACE = "/workspace";
     /**
-     * Mirror the host tree into /workspace, then seed from the image's template: a project without
+     * Mirror the host tree into /workspace, then seed from the image's template (never overwriting a file): a project without
      * package.json gets the whole starter; any project without node_modules gets the preinstalled ones.
      */
     private static final String CLEAR_WORKSPACE =
             "find /workspace -mindepth 1 -maxdepth 1 ! -name node_modules ! -name dist ! -name .git -exec rm -rf {} + ; "
                     + "tar -x -C /workspace"
                     + " && cd /workspace"
-                    + " && { [ -f package.json ] || cp -a /template/. /workspace/; }"
+                    + " && { [ -f package.json ] || cp -an /template/. /workspace/; }"
                     + " && { [ -d node_modules ] || cp -a /template/node_modules /workspace/node_modules; }";
 
     private final ProcessRunner runner;

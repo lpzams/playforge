@@ -105,6 +105,48 @@ class PlaytestHarnessIntegrationTest {
         assertThat(run.elapsed()).isLessThan(Duration.ofSeconds(100));
     }
 
+    /** Template-like page styling must not make an undrawn canvas look "not blank". */
+    @Test
+    void blankCanvasOnStyledPageFails() throws Exception {
+        Run run = harness("blank-canvas");
+        assertThat(run.check("not_blank")).as(run.detail("not_blank")).isFalse();
+    }
+
+    /** Something moving on its own must not count as the controls working. */
+    @Test
+    void autonomousMotionWithDeadControlsFails() throws Exception {
+        Run run = harness("autonomous");
+        assertThat(run.check("action:left")).as(run.report().toString()).isFalse();
+    }
+
+    /** A jump that lands before key release still counts. */
+    @Test
+    void shortJumpPasses() throws Exception {
+        Run run = harness("jump");
+        assertThat(run.check("action:jump")).as(run.detail("action:jump")).isTrue();
+    }
+
+    @Test
+    void loadingStatusWaitsForReady() throws Exception {
+        Run run = harness("loading");
+        assertThat(run.report().path("passed").asBoolean()).as(run.report().toString()).isTrue();
+    }
+
+    @Test
+    void hangAtLoadEndsWithinTimeLimit() throws Exception {
+        Run run = harness("hang-at-load");
+        assertThat(run.report().path("passed").asBoolean()).isFalse();
+        assertThat(run.elapsed()).isLessThan(Duration.ofSeconds(100));
+    }
+
+    /** The harness serves games with the preview's sandbox CSP, so storage use fails here, not only in preview. */
+    @Test
+    void storageUseFailsUnderPreviewSandbox() throws Exception {
+        Run run = harness("storage");
+        assertThat(run.report().path("passed").asBoolean()).isFalse();
+        assertThat(run.report().toString()).containsIgnoringCase("localStorage");
+    }
+
     @Test
     void absoluteAssetsFixtureFails() throws Exception {
         Run run = harness("absolute-assets");

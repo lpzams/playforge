@@ -64,6 +64,18 @@ class PreviewControllerTest {
         assertThat(r.getResponse().getContentAsString()).contains("<title>game</title>");
     }
 
+    /** Generated, untrusted JS must not run with the API's origin (it could call /api/** same-origin). */
+    @Test
+    void previewIsSandboxedAwayFromTheApiOrigin() throws Exception {
+        for (String url : new String[]{"/preview/abcdefghijkl/", "/preview/abcdefghijkl/assets/main.js"}) {
+            mvc.perform(get(url)).andExpect(status().isOk())
+                    .andExpect(header().string("Content-Security-Policy", org.hamcrest.Matchers.startsWith("sandbox allow-scripts")))
+                    .andExpect(header().string("Content-Security-Policy", org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("allow-same-origin"))))
+                    .andExpect(header().string("Access-Control-Allow-Origin", "*"))
+                    .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+        }
+    }
+
     @Test
     void redirectsWithoutTrailingSlash() throws Exception {
         mvc.perform(get("/preview/abcdefghijkl")).andExpect(status().isFound())

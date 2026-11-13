@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head><meta charset="UTF-8"><title>autonomous</title></head>
+<body style="margin:0;background:#111">
+<canvas id="c" width="320" height="200"></canvas>
+<script>
+  // A rock falls on its own every frame, but the ship's controls are dead.
+  // No entity is typed 'player', so the harness must use the no-input baseline to tell them apart.
+  const c = document.getElementById('c'), g = c.getContext('2d');
+  const s = { status: 'ready', shipX: 160, rockY: 0 };
+  addEventListener('keydown', (e) => { if (e.code === 'Space' && s.status === 'ready') s.status = 'playing'; });
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (s.status === 'playing') s.rockY = (s.rockY + 80 * dt) % 200;
+    g.fillStyle = '#203040'; g.fillRect(0, 0, 320, 200);
+    g.fillStyle = '#ffcc33'; g.fillRect(s.shipX - 10, 170, 20, 20);
+    g.fillStyle = '#aa5533'; g.fillRect(100, s.rockY, 16, 16);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__GAME_PROBE__ = {
+    version: 1,
+    getState: () => ({ status: s.status, score: 0, entities: [
+      { id: 'ship', type: 'ship', x: s.shipX, y: 170 },
+      { id: 'rock', type: 'rock', x: 100, y: Math.round(s.rockY) },
+    ] }),
+    actions: [{ name: 'left', keys: ['ArrowLeft'] }],
+    events: [],
+    start() { if (s.status === 'ready') s.status = 'playing'; },
+    restart() { s.status = 'ready'; s.rockY = 0; },
+  };
+</script>
+</body>
+</html>

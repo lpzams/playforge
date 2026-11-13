@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head><meta charset="UTF-8"><title>jump</title></head>
+<body style="margin:0;background:#111">
+<canvas id="c" width="320" height="200"></canvas>
+<script>
+  // Space makes the player jump for 200 ms and land again: by keyup the position is back to where it was.
+  // Meanwhile a cloud drifts on its own (not the player).
+  const c = document.getElementById('c'), g = c.getContext('2d');
+  const s = { status: 'ready', y: 170, jumpUntil: 0, cloudX: 0 };
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'Space') return;
+    if (s.status === 'ready') { s.status = 'playing'; return; }
+    if (s.status === 'playing' && s.jumpUntil < performance.now()) s.jumpUntil = performance.now() + 200;
+  });
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (s.status === 'playing') s.cloudX = (s.cloudX + 40 * dt) % 320;
+    s.y = now < s.jumpUntil ? 120 : 170;
+    g.fillStyle = '#203040'; g.fillRect(0, 0, 320, 200);
+    g.fillStyle = '#ffffff'; g.fillRect(s.cloudX, 20, 40, 12);
+    g.fillStyle = '#ffcc33'; g.fillRect(150, s.y, 20, 20);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__GAME_PROBE__ = {
+    version: 1,
+    getState: () => ({ status: s.status, score: 0, entities: [
+      { id: 'hero', type: 'player', x: 160, y: s.y },
+      { id: 'cloud', type: 'cloud', x: Math.round(s.cloudX), y: 20 },
+    ] }),
+    actions: [{ name: 'jump', keys: ['Space'] }],
+    events: [],
+    start() { if (s.status === 'ready') s.status = 'playing'; },
+    restart() { s.status = 'ready'; s.jumpUntil = 0; },
+  };
+</script>
+</body>
+</html>

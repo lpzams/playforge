@@ -107,7 +107,7 @@ class CliDockerOpsTest {
     void copyInSeedsTemplate(@org.junit.jupiter.api.io.TempDir java.nio.file.Path host) {
         ops.copyIn("abc123", host);
         String script = String.join(" ", runner.cmds.getFirst());
-        assertThat(script).contains("cp -a /template/. /workspace/").contains("/template/node_modules");
+        assertThat(script).contains("cp -an /template/. /workspace/").contains("/template/node_modules").doesNotContain("cp -a /template/. ");
     }
 
     @Test

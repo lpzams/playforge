@@ -20,6 +20,12 @@ class PromptTemplatesTest {
     }
 
     @Test
+    void codePromptExplainsPlaytestEnvironmentLimits() {
+        String p = PromptTemplates.code("x");
+        assertThat(p).contains("window.addEventListener").contains("localStorage");
+    }
+
+    @Test
     void reviewKeepsSmallDiffIntact() {
         String review = PromptTemplates.review("p", "+console.log('hi')");
         assertThat(review).contains("+console.log('hi')").doesNotContain("[diff truncated]");

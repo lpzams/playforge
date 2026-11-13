@@ -29,6 +29,8 @@ import java.util.regex.Pattern;
 public class PreviewController {
 
     private static final Pattern PROJECT_ID = Pattern.compile("[a-z0-9]{12}");
+    /** Must match the header the playtest harness (sandbox/playtest/run.mjs) serves games with. */
+    static final String PREVIEW_CSP = "sandbox allow-scripts allow-pointer-lock";
 
     private final PlayforgeProperties props;
 
@@ -67,6 +69,11 @@ public class PreviewController {
         return ResponseEntity.ok()
                 .contentType(type)
                 .cacheControl(CacheControl.noStore())
+                // Generated games are untrusted code: give them an opaque origin so they can't call /api/**
+                // with the API's origin. Module scripts are fetched with CORS from that opaque origin, hence ACAO *.
+                .header("Content-Security-Policy", PREVIEW_CSP)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("X-Content-Type-Options", "nosniff")
                 .body(new FileSystemResource(file));
     }
 }

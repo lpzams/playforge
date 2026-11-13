@@ -14,7 +14,15 @@ const PROBE_MS = 10_000;
 const STEP_MS = 5_000;
 const HOLD_MS = 400;
 const BLANK_STDDEV = 2;
+const SAMPLE_MS = 100;
 const MOUNT = '/game/';
+// Same isolation the backend's /preview endpoint applies (PreviewController.PREVIEW_CSP), so that
+// "passes the playtest" implies "works in the preview" (e.g. localStorage throws in both).
+const PREVIEW_HEADERS = {
+  'Content-Security-Policy': 'sandbox allow-scripts allow-pointer-lock',
+  'Access-Control-Allow-Origin': '*',
+  'X-Content-Type-Options': 'nosniff',
+};
 
 const started = Date.now();
 const checks = [];
@@ -76,7 +84,7 @@ function serve(dist) {
       res.writeHead(404).end();
       return;
     }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream', ...PREVIEW_HEADERS });
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
@@ -96,18 +104,40 @@ function grayStddev(pngBuffer) {
   return Math.sqrt(Math.max(0, sumSq / n - mean * mean));
 }
 
-/** Did pressing a key visibly change the game? Status or entities (count or position); score alone doesn't count. */
-function stateChanged(before, after) {
-  if (!before || !after) return false;
-  if (before.status !== after.status) return true;
-  const a = Array.isArray(before.entities) ? before.entities : [];
-  const b = Array.isArray(after.entities) ? after.entities : [];
-  if (a.length !== b.length) return true;
-  const byId = new Map(a.map((e) => [String(e.id), e]));
-  return b.some((e) => {
-    const p = byId.get(String(e.id));
-    return !p || Math.abs((p.x ?? 0) - (e.x ?? 0)) > 0.5 || Math.abs((p.y ?? 0) - (e.y ?? 0)) > 0.5;
-  });
+function entitiesOf(state, playersOnly) {
+  const all = state && Array.isArray(state.entities) ? state.entities.filter(Boolean) : [];
+  return playersOnly ? all.filter((e) => e.type === 'player') : all;
+}
+
+/**
+ * Ids of entities that appeared, disappeared or moved between two states. Score is ignored: time-based scores
+ * change with or without input.
+ */
+function changedIds(a, b, playersOnly) {
+  const before = new Map(entitiesOf(a, playersOnly).map((e) => [String(e.id), e]));
+  const after = new Map(entitiesOf(b, playersOnly).map((e) => [String(e.id), e]));
+  const ids = new Set();
+  for (const [id, e] of after) {
+    const p = before.get(id);
+    if (!p || Math.abs((p.x ?? 0) - (e.x ?? 0)) > 0.5 || Math.abs((p.y ?? 0) - (e.y ?? 0)) > 0.5) ids.add(id);
+  }
+  for (const id of before.keys()) if (!after.has(id)) ids.add(id);
+  return ids;
+}
+
+/**
+ * What changed during a window, relative to its first state: union of changed entity ids over all samples,
+ * plus whether the status changed at any point. Sampling (not just before/after) catches short actions
+ * such as a jump that has landed by the time the key is released.
+ */
+function changesOver(first, samples, playersOnly) {
+  const ids = new Set();
+  let status = false;
+  for (const s of samples) {
+    for (const id of changedIds(first, s, playersOnly)) ids.add(id);
+    if (s && first && s.status !== first.status) status = true;
+  }
+  return { ids, status };
 }
 
 async function main() {
@@ -145,7 +175,17 @@ async function main() {
     // probe
     let probe = null;
     try {
+      const probeStart = Date.now();
       await page.waitForFunction(() => window.__GAME_PROBE__ && window.__GAME_PROBE__.version === 1, null, { timeout: PROBE_MS });
+      // 'loading' is a valid initial status (e.g. Phaser preload): wait for it to end within the same window.
+      try {
+        await page.waitForFunction(() => {
+          try { return window.__GAME_PROBE__.getState().status !== 'loading'; } catch { return false; }
+        }, null, { timeout: Math.max(1000, PROBE_MS - (Date.now() - probeStart)) });
+      } catch (e) {
+        if (e.name === 'TimeoutError') throw new Error(`status still 'loading' after ${PROBE_MS / 1000}s`);
+        throw e;
+      }
       probe = await withTimeout(page.evaluate(() => ({
         state: window.__GAME_PROBE__.getState(),
         actions: (window.__GAME_PROBE__.actions || []).map((a) => ({ name: String(a.name), keys: (a.keys || []).map(String) })),
@@ -157,9 +197,16 @@ async function main() {
       probe = null;
     }
 
-    // not_blank
+    // not_blank: measured on the largest canvas (page styling around it must not count), else the whole page
     try {
-      const shot = await page.screenshot({ timeout: STEP_MS });
+      let target = page;
+      const canvases = await withTimeout(page.locator('canvas').all(), STEP_MS, 'finding canvas');
+      let bestArea = 0;
+      for (const c of canvases) {
+        const box = await c.boundingBox({ timeout: STEP_MS }).catch(() => null);
+        if (box && box.width * box.height > bestArea) { bestArea = box.width * box.height; target = c; }
+      }
+      const shot = await target.screenshot({ timeout: STEP_MS });
       const sd = grayStddev(shot);
       check('not_blank', sd >= BLANK_STDDEV, `gray stddev ${sd.toFixed(2)}`);
     } catch (e) {
@@ -179,17 +226,39 @@ async function main() {
             await withTimeout(page.evaluate(() => window.__GAME_PROBE__.restart()), STEP_MS, 'restart');
             s = await getState();
           }
-          if (s.status === 'ready') {
+          if (s.status === 'ready' || s.status === 'paused') {
             await withTimeout(page.evaluate(() => window.__GAME_PROBE__.start()), STEP_MS, 'start');
-            await sleep(100);
+            await sleep(SAMPLE_MS);
           }
-          const before = await getState();
+          const sampleFor = async (ms) => {
+            const out = [];
+            const end = Date.now() + ms;
+            while (Date.now() < end) {
+              await sleep(SAMPLE_MS);
+              out.push(await getState());
+            }
+            return out;
+          };
+
+          // Baseline: what changes over the same time WITHOUT input (falling rocks, drifting clouds...).
+          const base0 = await getState();
+          const playersOnly = entitiesOf(base0, false).some((e) => e.type === 'player');
+          const baseline = changesOver(base0, await sampleFor(HOLD_MS), playersOnly);
+
+          // With the keys held, sampled throughout so short actions (jump, shoot) are seen.
+          const key0 = await getState();
           for (const k of action.keys) await withTimeout(page.keyboard.down(k), STEP_MS, `key ${k}`);
-          await sleep(HOLD_MS);
+          const held = await sampleFor(HOLD_MS);
           for (const k of action.keys) await withTimeout(page.keyboard.up(k), STEP_MS, `key ${k}`);
-          const after = await getState();
-          const changed = stateChanged(before, after);
-          check(name, changed, changed ? '' : `pressing ${action.keys.join('+')} for ${HOLD_MS}ms changed neither entities nor status`);
+          held.push(await getState());
+          const keyed = changesOver(key0, held, playersOnly);
+
+          const novel = [...keyed.ids].filter((id) => !baseline.ids.has(id));
+          const ok = novel.length > 0 || (keyed.status && !baseline.status);
+          const scope = playersOnly ? "entities of type 'player'" : 'entities';
+          check(name, ok, ok
+            ? `changed: ${novel.join(', ') || 'status'}`
+            : `pressing ${action.keys.join('+')} for ${HOLD_MS}ms changed no ${scope} or status beyond what changes without input`);
         } catch (e) {
           check(name, false, e.message);
         }

@@ -123,6 +123,20 @@ class DockerSandboxIntegrationTest {
     }
 
     @Test
+    void seedingNeverOverwritesProjectFiles() throws Exception {
+        Files.writeString(host.resolve("index.html"), "MINE");
+        DockerSandbox sandbox = new DockerSandbox(pool.acquire(Duration.ofSeconds(60)), pool, ops);
+        try {
+            sandbox.syncIn(host);
+            List<String> out = new CopyOnWriteArrayList<>();
+            assertThat(exec(sandbox, "cat index.html && test -f package.json", out)).isZero();
+            assertThat(String.join("", out)).isEqualTo("MINE");
+        } finally {
+            sandbox.close();
+        }
+    }
+
+    @Test
     void exportDirMirrorsDist() {
         DockerSandbox sandbox = new DockerSandbox(pool.acquire(Duration.ofSeconds(60)), pool, ops);
         try {

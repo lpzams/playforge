@@ -15,7 +15,16 @@ import java.util.function.Consumer;
 /** Test sandbox: each exec call consumes the next scripted (stdout lines, exit code, stderr). */
 class SequencedExecSandbox implements Sandbox {
 
-    record Result(List<String> stdout, int exitCode, String stderr) {}
+    record Result(List<String> stdout, int exitCode, String stderr, RuntimeException toThrow) {
+        Result(List<String> stdout, int exitCode, String stderr) {
+            this(stdout, exitCode, stderr, null);
+        }
+    }
+
+    SequencedExecSandbox thenThrow(RuntimeException e) {
+        results.add(new Result(List.of(), 0, "", e));
+        return this;
+    }
 
     final Deque<Result> results = new ArrayDeque<>();
     final List<List<String>> cmds = new ArrayList<>();
@@ -36,6 +45,7 @@ class SequencedExecSandbox implements Sandbox {
         cmds.add(cmd);
         Result r = results.poll();
         if (r == null) throw new AssertionError("unexpected exec " + cmd);
+        if (r.toThrow() != null) throw r.toThrow();
         r.stdout().forEach(out);
         return new ExecResult(r.exitCode(), r.stderr());
     }

@@ -2,6 +2,7 @@ package dev.playforge.playtest;
 
 import dev.playforge.common.CancellationToken;
 import dev.playforge.process.ExecResult;
+import dev.playforge.process.ProcessTimeoutException;
 import dev.playforge.sandbox.Sandbox;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -21,7 +22,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @ConditionalOnProperty(name = "playforge.sandbox.provider", havingValue = "docker")
 public class DockerPlaytester implements Playtester {
 
-    static final List<String> BUILD = List.of("npm", "run", "build");
+    /** Removing dist first guarantees we never playtest (or export) output from an earlier build. */
+    static final List<String> BUILD = List.of("sh", "-c", "rm -rf dist && npm run build");
     static final List<String> HARNESS = List.of("node", "/opt/playtest/run.mjs", "--dist", "/workspace/dist");
     private static final Duration BUILD_TIMEOUT = Duration.ofMinutes(3);
     private static final Duration HARNESS_TIMEOUT = Duration.ofMinutes(2);
@@ -30,7 +32,14 @@ public class DockerPlaytester implements Playtester {
     @Override
     public PlaytestReport run(Sandbox sandbox, CancellationToken cancel) {
         List<String> buildOut = new CopyOnWriteArrayList<>();
-        ExecResult build = sandbox.exec(BUILD, null, BUILD_TIMEOUT, cancel, buildOut::add);
+        ExecResult build;
+        try {
+            build = sandbox.exec(BUILD, null, BUILD_TIMEOUT, cancel, buildOut::add);
+        } catch (ProcessTimeoutException e) {
+            String msg = "build timed out after " + BUILD_TIMEOUT.toMinutes() + " min";
+            return new PlaytestReport(false, List.of(msg),
+                    Map.of("checks", List.of(check("build", false, msg)), "durationMs", 0));
+        }
         if (build.exitCode() != 0) {
             String output = tail(String.join("\n", buildOut) + "\n" + build.stderrTail());
             Map<String, Object> buildCheck = check("build", false, output);
@@ -39,8 +48,15 @@ public class DockerPlaytester implements Playtester {
         }
 
         List<String> out = new CopyOnWriteArrayList<>();
-        ExecResult harness = sandbox.exec(HARNESS, null, HARNESS_TIMEOUT, cancel, out::add);
-        PlaytestReport report = PlaytestReportParser.parse(out, harness.stderrTail());
+        PlaytestReport report;
+        try {
+            ExecResult harness = sandbox.exec(HARNESS, null, HARNESS_TIMEOUT, cancel, out::add);
+            report = PlaytestReportParser.parse(out, harness.stderrTail());
+        } catch (ProcessTimeoutException e) {
+            String msg = "playtest timed out after " + HARNESS_TIMEOUT.toMinutes() + " min (page unresponsive?)";
+            report = new PlaytestReport(false, List.of(msg),
+                    Map.of("checks", List.of(check("harness", false, msg)), "durationMs", HARNESS_TIMEOUT.toMillis()));
+        }
 
         List<Object> checks = new ArrayList<>();
         checks.add(check("build", true, ""));

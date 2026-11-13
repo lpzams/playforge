@@ -26,6 +26,10 @@ public final class PromptTemplates {
               (npm run build), presses every declared action's keys and expects the player's entities (position
               or count) or the status to change, checks the canvas is not blank, that there are no console
               errors, and that restart() returns to 'ready' or 'playing'.
+            - Listen for keyboard input with window.addEventListener('keydown'/'keyup') (the playtest does not focus
+              any element). Make short actions (jump, shoot) visible in the probe while the key is held.
+            - The game runs in a sandboxed origin: localStorage, sessionStorage, IndexedDB and cookies throw.
+              Keep all state in memory.
             - Run `npm run build` before you finish and fix any error it reports.
             """;
 

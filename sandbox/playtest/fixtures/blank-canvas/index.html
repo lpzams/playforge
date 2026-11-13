@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head><meta charset="UTF-8"><title>blank-canvas</title>
+<style>
+  /* Same page styling as the game template: the page itself is not a single colour. */
+  html, body { margin: 0; height: 100%; background: #111; display: flex; align-items: center; justify-content: center; }
+  canvas { background: #1b2030; }
+</style>
+</head>
+<body>
+<canvas id="c" width="480" height="320"></canvas>
+<script>
+  // The game never draws anything; only the probe works.
+  const s = { status: 'ready', x: 160 };
+  addEventListener('keydown', (e) => { if (s.status === 'playing') { if (e.code === 'ArrowLeft') s.x -= 10; if (e.code === 'ArrowRight') s.x += 10; } });
+  window.__GAME_PROBE__ = {
+    version: 1,
+    getState: () => ({ status: s.status, score: 0, entities: [{ id: 'p', type: 'player', x: s.x, y: 100 }] }),
+    actions: [{ name: 'left', keys: ['ArrowLeft'] }],
+    events: [],
+    start() { s.status = 'playing'; },
+    restart() { s.status = 'ready'; s.x = 160; },
+  };
+</script>
+</body>
+</html>
