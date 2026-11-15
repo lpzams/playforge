@@ -4,53 +4,43 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>游戏广场 · PlayForge</title>
-  <meta name="description" content="由 AI 写、审、试玩生成的小游戏：Claude 写代码、Codex 审查、Playwright 驱动的 AI 试玩发现问题自动修复。" />
+  <meta name="description" content="一句话生成的小游戏：Claude 写代码、Codex 审查、在浏览器里自动试玩，发现问题自动修复。" />
   <meta name="repo-url" content="https://github.com/lpzams/playforge" />
   <link rel="stylesheet" href="style.css?v=__BUILD__" />
 </head>
 <body>
-  <div class="page">
-    <div class="notice">
-      这里的每个游戏都由 <b>PlayForge</b> 根据一句话自动生成：Claude 写代码 · Codex 审查 · AI 在浏览器里试玩，发现问题自动修复。
-      <a class="readme-link" href="#">《工作原理》</a><a class="repo-link" href="#">《源码》</a>
+  <nav class="topbar">
+    <div class="topbar-inner">
+      <a class="wordmark" href="./">PlayForge</a>
+      <span class="spacer"></span>
+      <a class="text-link readme-link" href="#">工作原理</a>
+      <a class="text-link repo-link" href="#">GitHub</a>
     </div>
+  </nav>
 
-    <header class="head">
-      <div>
-        <h1>游戏广场</h1>
-        <p class="sub">由 AI 写、审、试玩生成的小游戏，点开即玩，还能看它是怎么被做出来的。</p>
-      </div>
-      <a class="btn repo-link" href="#">GitHub 源码</a>
-    </header>
+  <main class="page">
+    <section class="intro">
+      <h1>游戏广场</h1>
+      <p>这里的每个游戏都只来自一句话描述。Claude 写代码，Codex 审查，再由程序在浏览器里真的去玩一遍，有问题就改，直到能玩为止。</p>
+    </section>
 
-    <div class="toolbar">
-      <label class="search">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <input id="search" type="search" placeholder="搜索游戏" />
-      </label>
-      <button id="sort" class="btn" type="button">⇅ 最新生成</button>
-      <button id="filter-bug" class="btn" type="button" aria-pressed="false">修过 bug</button>
-    </div>
+    <label class="search">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m20 20-4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <input id="search" type="search" placeholder="搜索游戏" />
+    </label>
 
-    <div class="meta-row">
-      <span><b id="count">0</b> 个游戏</span>
-      <span id="sort-label" class="muted">按生成时间排序</span>
-      <div class="view-toggle" role="group" aria-label="视图">
-        <button id="view-grid" type="button" class="active" aria-label="网格视图">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-        </button>
-        <button id="view-list" type="button" aria-label="列表视图">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-      </div>
+    <div class="filters">
+      <button id="sort-newest" class="chip" type="button" aria-pressed="true">最新</button>
+      <button id="sort-fastest" class="chip" type="button" aria-pressed="false">用时最短</button>
+      <button id="filter-bug" class="chip" type="button" aria-pressed="false">审查中改过问题</button>
+      <span id="count" class="count"></span>
     </div>
 
     <div id="game-list" class="cards"></div>
     <p id="empty" class="empty" hidden>没有匹配的游戏</p>
+  </main>
 
-    <footer class="footer muted">PlayForge · 数据导出于 <span id="exported-at"></span></footer>
-  </div>
-
+  <footer class="footer">数据导出于 <span id="exported-at"></span></footer>
 
   <script src="common.js?v=__BUILD__"></script>
   <script src="app.js?v=__BUILD__"></script>

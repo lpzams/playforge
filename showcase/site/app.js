@@ -2,26 +2,16 @@
 
 function card(game) {
   const a = analyse(game);
-  const passed = a.checks.filter((c) => c.passed).length;
+  const meta = [`用时 ${duration(a.totalMs)}`, a.blockers.length ? `审查中改掉 ${a.blockers.length} 个问题` : '审查一次通过'];
   return el('a', { class: 'card', href: gameUrl(game) },
-    el('div', { class: 'card-top' },
-      avatar(game),
-      el('div', { class: 'title-box' },
-        el('div', { class: 'title' }, shortTitle(game.title)),
-        el('span', { class: 'ver' }, `版本 ${game.runs.length}`))),
-    el('p', { class: 'desc' }, game.prompt),
-    el('div', { class: 'author' },
-      el('span', { class: 'faces' }, el('span', { class: 'face claude' }, 'C'), el('span', { class: 'face codex' }, 'X')),
-      'Claude × Codex'),
-    el('div', { class: 'stats' },
-      el('div', { class: 'rating' }, el('span', { class: 'star' }, '★ '), `AI 试玩 ${passed}/${a.checks.length} 项通过`),
-      el('div', { class: 'usage' },
-        el('span', {}, `用时 ${duration(a.totalMs)}`),
-        el('span', {}, a.blockers.length ? `修复 ${a.blockers.length} 个 bug` : '审查一次通过'),
-        el('span', { class: 'pill' }, '可试玩'))));
+    thumb(game),
+    el('div', { class: 'card-text' },
+      el('div', { class: 'card-title' }, shortTitle(game.title)),
+      el('p', { class: 'card-desc' }, game.prompt),
+      el('div', { class: 'card-meta' }, meta.join(' · '))));
 }
 
-const state = { games: [], query: '', sort: 'newest', bugOnly: false, view: 'grid' };
+const state = { games: [], query: '', sort: 'newest', bugOnly: false };
 
 function render() {
   const q = state.query.trim().toLowerCase();
@@ -31,24 +21,19 @@ function render() {
     ? [...list].sort((a, b) => analyse(a).totalMs - analyse(b).totalMs)
     : [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const grid = document.getElementById('game-list');
-  grid.className = state.view === 'list' ? 'cards list' : 'cards';
-  grid.replaceChildren(...list.map(card));
-  document.getElementById('count').textContent = String(list.length);
+  document.getElementById('game-list').replaceChildren(...list.map(card));
+  document.getElementById('count').textContent = `${list.length} 个游戏`;
   document.getElementById('empty').hidden = list.length > 0;
-  document.getElementById('sort').textContent = state.sort === 'fastest' ? '⇅ 用时最短' : '⇅ 最新生成';
-  document.getElementById('sort-label').textContent = state.sort === 'fastest' ? '按生成用时排序' : '按生成时间排序';
+  document.getElementById('sort-newest').setAttribute('aria-pressed', String(state.sort === 'newest'));
+  document.getElementById('sort-fastest').setAttribute('aria-pressed', String(state.sort === 'fastest'));
   document.getElementById('filter-bug').setAttribute('aria-pressed', String(state.bugOnly));
-  document.getElementById('view-grid').classList.toggle('active', state.view === 'grid');
-  document.getElementById('view-list').classList.toggle('active', state.view === 'list');
 }
 
 async function main() {
   document.getElementById('search').addEventListener('input', (e) => { state.query = e.target.value; render(); });
-  document.getElementById('sort').addEventListener('click', () => { state.sort = state.sort === 'newest' ? 'fastest' : 'newest'; render(); });
+  document.getElementById('sort-newest').addEventListener('click', () => { state.sort = 'newest'; render(); });
+  document.getElementById('sort-fastest').addEventListener('click', () => { state.sort = 'fastest'; render(); });
   document.getElementById('filter-bug').addEventListener('click', () => { state.bugOnly = !state.bugOnly; render(); });
-  document.getElementById('view-grid').addEventListener('click', () => { state.view = 'grid'; render(); });
-  document.getElementById('view-list').addEventListener('click', () => { state.view = 'list'; render(); });
 
   const data = await loadData();
   state.games = data.games;
