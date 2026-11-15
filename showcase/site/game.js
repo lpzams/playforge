@@ -79,20 +79,62 @@ function story(game) {
   return items;
 }
 
-function mountGame(game) {
+const PAD = 10; // px of the game's own background kept around its canvas
+
+/**
+ * Plays the game scaled to fill the stage. The iframe is rendered at the canvas size (plus a small pad) and scaled
+ * with a transform, so a 480x320 game fills a large stage instead of sitting small inside a black letterbox.
+ * Without a known size the iframe simply fills the stage.
+ */
+function mountGame(game, size) {
   const stage = document.getElementById('stage');
+  const col = stage.parentElement;
+  let frame = null;
+  const w = size ? size.width + PAD * 2 : 0;
+  const h = size ? size.height + PAD * 2 : 0;
+
+  const layout = () => {
+    if (!frame || !size) return;
+    if (document.fullscreenElement === stage) {
+      stage.style.width = ''; stage.style.height = '';
+    } else if (matchMedia('(max-width: 1100px)').matches) {
+      stage.style.width = '100%'; stage.style.height = `${Math.round(col.clientWidth * h / w)}px`;
+    } else {
+      const maxH = Math.max(320, innerHeight - 160);
+      const k = Math.min(col.clientWidth / w, maxH / h);
+      stage.style.width = `${Math.round(w * k)}px`; stage.style.height = `${Math.round(h * k)}px`;
+    }
+    const k = Math.min(stage.clientWidth / w, stage.clientHeight / h);
+    frame.style.transform = `translate(-50%, -50%) scale(${k})`;
+  };
+
   const load = () => {
-    const frame = el('iframe', { src: playUrl(game), sandbox: SANDBOX, title: shortTitle(game.title), allow: 'fullscreen' });
+    frame = el('iframe', { src: playUrl(game), sandbox: SANDBOX, title: shortTitle(game.title), allow: 'fullscreen' });
+    if (size) { frame.style.width = `${w}px`; frame.style.height = `${h}px`; } else stage.classList.add('fill');
     // Give the game keyboard focus once it loads, so the arrow keys work without an extra click.
     frame.addEventListener('load', () => { try { frame.contentWindow.focus(); } catch { /* ignore */ } });
     stage.replaceChildren(frame);
+    layout();
   };
+
   load();
+  new ResizeObserver(layout).observe(col);
+  addEventListener('resize', layout);
+  document.addEventListener('fullscreenchange', () => requestAnimationFrame(layout));
   document.getElementById('reload').addEventListener('click', load);
   document.getElementById('fullscreen').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();
     else stage.requestFullscreen?.();
   });
+}
+
+async function canvasSize(game) {
+  try {
+    const s = await (await fetch(`games/${game.id}/play/cover.json`)).json();
+    return s.width > 0 && s.height > 0 ? s : null;
+  } catch {
+    return null;
+  }
 }
 
 async function main() {
@@ -110,7 +152,7 @@ async function main() {
     `试玩 ${a.checks.filter((c) => c.passed).length}/${a.checks.length} 项通过`,
   ].join(' · ');
   document.getElementById('game-prompt').textContent = game.prompt;
-  mountGame(game);
+  mountGame(game, await canvasSize(game));
 
   document.getElementById('story-sub').textContent = `从一句话到能玩，一共 ${duration(a.totalMs)}。`;
   document.getElementById('feed').replaceChildren(...story(game));

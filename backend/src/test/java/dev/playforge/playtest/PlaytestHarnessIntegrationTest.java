@@ -76,7 +76,7 @@ class PlaytestHarnessIntegrationTest {
         List<String> out = new CopyOnWriteArrayList<>();
         new ProcessRunner().run(List.of("docker", "run", "--rm", IMAGE, "sh", "-c",
                         "cp -r /opt/playtest/fixtures/good /tmp/g && node /opt/playtest/run.mjs --dist /tmp/g > /dev/null"
-                                + " && test -s /tmp/g/cover.png && echo COVER_OK"),
+                                + " && test -s /tmp/g/cover.png && grep -q width /tmp/g/cover.json && echo COVER_OK"),
                 Map.of(), null, Duration.ofSeconds(150), new CancellationToken(), out::add);
         assertThat(out).contains("COVER_OK");
     }

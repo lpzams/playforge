@@ -212,7 +212,12 @@ async function main() {
       check('not_blank', sd >= BLANK_STDDEV, `gray stddev ${sd.toFixed(2)}`);
       // The canvas shot doubles as the game's cover image (shipped with the build to preview and showcase).
       if (sd >= BLANK_STDDEV) {
-        try { fs.writeFileSync(path.join(dist, 'cover.png'), shot); } catch { /* read-only dist: no cover */ }
+        try {
+          fs.writeFileSync(path.join(dist, 'cover.png'), shot);
+          // Canvas size lets players scale the game to fill their stage instead of letterboxing it.
+          const box = target === page ? null : await target.boundingBox({ timeout: STEP_MS });
+          if (box) fs.writeFileSync(path.join(dist, 'cover.json'), JSON.stringify({ width: Math.round(box.width), height: Math.round(box.height) }));
+        } catch { /* read-only dist: no cover */ }
       }
     } catch (e) {
       check('not_blank', false, e.message);
