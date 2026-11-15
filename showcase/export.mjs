@@ -54,7 +54,12 @@ for (const p of projects.sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
     if (r.status === 'QUEUED' || r.status === 'RUNNING') continue;
     runs.push({ ...r, events: await runEvents(r.id) });
   }
-  fs.cpSync(path.join(repo, 'previews', p.id), path.join(site, 'games', p.id, 'play'), { recursive: true });
+  const play = path.join(site, 'games', p.id, 'play');
+  fs.cpSync(path.join(repo, 'previews', p.id), play, { recursive: true });
+  // Load the hi-DPI shim (site/hidpi.js) before the game so its small canvas renders sharply when scaled up.
+  const html = path.join(play, 'index.html');
+  fs.writeFileSync(html, fs.readFileSync(html, 'utf8').replace(/(\s*)(<script type="module")/,
+    '$1<script defer src="../../../hidpi.js?v=__BUILD__"></script>$1$2'));
   games.push({ id: p.id, title: p.title, prompt: p.prompt, createdAt: p.createdAt, runs });
   console.log(`exported ${p.id}  ${p.title}  (${runs.length} run(s), ${runs.reduce((n, r) => n + r.events.length, 0)} events)`);
 }

@@ -79,48 +79,25 @@ function story(game) {
   return items;
 }
 
-const PAD = 10; // px of the game's own background kept around its canvas
+const PAD = 10; // px of the game page background kept around its canvas (see hidpi.js)
 
 /**
- * Plays the game scaled to fill the stage. The iframe is rendered at the canvas size (plus a small pad) and scaled
- * with a transform, so a 480x320 game fills a large stage instead of sitting small inside a black letterbox.
- * Without a known size the iframe simply fills the stage.
+ * Plays the game as large as the page allows. The stage takes the canvas aspect ratio (plus a small pad) and the
+ * iframe fills it; inside, hidpi.js sizes the canvas to the frame and renders it at full resolution, so the game is
+ * sharp instead of a small bitmap stretched up.
  */
 function mountGame(game, size) {
   const stage = document.getElementById('stage');
-  const col = stage.parentElement;
-  let frame = null;
-  const w = size ? size.width + PAD * 2 : 0;
-  const h = size ? size.height + PAD * 2 : 0;
-
-  const layout = () => {
-    if (!frame || !size) return;
-    if (document.fullscreenElement === stage) {
-      stage.style.width = ''; stage.style.height = '';
-    } else if (matchMedia('(max-width: 1100px)').matches) {
-      stage.style.width = '100%'; stage.style.height = `${Math.round(col.clientWidth * h / w)}px`;
-    } else {
-      const maxH = Math.max(320, innerHeight - 160);
-      const k = Math.min(col.clientWidth / w, maxH / h);
-      stage.style.width = `${Math.round(w * k)}px`; stage.style.height = `${Math.round(h * k)}px`;
-    }
-    const k = Math.min(stage.clientWidth / w, stage.clientHeight / h);
-    frame.style.transform = `translate(-50%, -50%) scale(${k})`;
-  };
+  if (size) document.querySelector('.game-layout').style.setProperty('--ar', ((size.width + PAD * 2) / (size.height + PAD * 2)).toFixed(4));
 
   const load = () => {
-    frame = el('iframe', { src: playUrl(game), sandbox: SANDBOX, title: shortTitle(game.title), allow: 'fullscreen' });
-    if (size) { frame.style.width = `${w}px`; frame.style.height = `${h}px`; } else stage.classList.add('fill');
+    const frame = el('iframe', { src: playUrl(game), sandbox: SANDBOX, title: shortTitle(game.title), allow: 'fullscreen' });
     // Give the game keyboard focus once it loads, so the arrow keys work without an extra click.
     frame.addEventListener('load', () => { try { frame.contentWindow.focus(); } catch { /* ignore */ } });
     stage.replaceChildren(frame);
-    layout();
   };
 
   load();
-  new ResizeObserver(layout).observe(col);
-  addEventListener('resize', layout);
-  document.addEventListener('fullscreenchange', () => requestAnimationFrame(layout));
   document.getElementById('reload').addEventListener('click', load);
   document.getElementById('fullscreen').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();
@@ -159,5 +136,5 @@ async function main() {
 }
 
 main().catch((e) => {
-  document.querySelector('.game-main').replaceChildren(el('p', { class: 'muted' }, `加载失败：${e.message}`), el('a', { href: './' }, '返回游戏广场'));
+  document.querySelector('.game-layout').replaceChildren(el('p', { class: 'muted' }, `加载失败：${e.message}`), el('a', { href: './' }, '返回游戏广场'));
 });

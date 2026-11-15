@@ -20,28 +20,26 @@
   </nav>
 
   <main class="game-layout">
-    <section class="play-col">
-      <div id="stage" class="player-stage"></div>
-      <div class="player-bar">
+    <div id="stage" class="player-stage"></div>
+
+    <header class="game-head">
+      <div class="game-title-block">
+        <h1 id="game-title"></h1>
+        <div id="game-meta" class="game-meta"></div>
+      </div>
+      <div class="player-actions">
         <span class="hint">用 ← → 和空格操作</span>
         <button id="reload" class="pill plain" type="button">重新开始</button>
         <button id="fullscreen" class="pill tonal" type="button">全屏</button>
       </div>
+    </header>
+    <p id="game-prompt" class="game-prompt"></p>
+
+    <section class="story">
+      <h2>它是怎么做出来的</h2>
+      <p id="story-sub" class="story-sub"></p>
+      <ol id="feed" class="feed"></ol>
     </section>
-
-    <aside class="side-col">
-      <header class="game-head">
-        <h1 id="game-title"></h1>
-        <div id="game-meta" class="game-meta"></div>
-        <p id="game-prompt" class="game-prompt"></p>
-      </header>
-
-      <section class="story">
-        <h2>它是怎么做出来的</h2>
-        <p id="story-sub" class="story-sub"></p>
-        <ol id="feed" class="feed"></ol>
-      </section>
-    </aside>
   </main>
 
   <script src="common.js?v=__BUILD__"></script>
