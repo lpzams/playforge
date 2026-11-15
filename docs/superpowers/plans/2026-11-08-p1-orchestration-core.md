@@ -35,7 +35,7 @@
 
 本机现状（2026-11-08 检查）：默认 `java` 是 JDK 11，全局 Maven 是 3.6.1，两者都低于 Spring Boot 3.5 的要求（Java 17+、Maven 3.6.3+）。处理方式：
 
-- [ ] **JDK**：构建时设置 `JAVA_HOME=C:\Users\泽泽\.jdks\openjdk-22.0.1`（pom 里 `<java.version>21</java.version>`，用 JDK 22 编译出 21 字节码没有问题）。也可以另装 JDK 21 LTS 再指过去
+- [ ] **JDK**：构建时设置 `JAVA_HOME=C:\Users\<你的用户名>\.jdks\openjdk-22.0.1`（pom 里 `<java.version>21</java.version>`，用 JDK 22 编译出 21 字节码没有问题）。也可以另装 JDK 21 LTS 再指过去
 - [ ] **Maven**：不升级全局 Maven；Task 1 在 `backend/` 下生成 Maven Wrapper，固定 Maven 3.9.9，下文所有构建命令都用 `./mvnw`（PowerShell 下用 `.\mvnw.cmd`）
 - [ ] 验证：在 `backend/` 执行 `./mvnw -v`，输出含 `Apache Maven 3.9.9` 和 `Java version: 22`
 

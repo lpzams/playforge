@@ -45,7 +45,7 @@ class CliDockerOpsTest {
 
     static final DockerRunSpec SPEC = new DockerRunSpec("playforge-sandbox:p2",
             Map.of("CLAUDE_CODE_OAUTH_TOKEN", "PLAYFORGE_CLAUDE_TOKEN"),
-            List.of(new DockerRunSpec.Mount("C:\\Users\\泽泽\\.codex\\auth.json", "/mnt/creds/codex/auth.json")),
+            List.of(new DockerRunSpec.Mount("C:\\Users\\dev\\.codex\\auth.json", "/mnt/creds/codex/auth.json")),
             "2", "4g", 512, Map.of("playforge.pool", "app"));
 
     final RecordingRunner runner = new RecordingRunner();
@@ -69,7 +69,7 @@ class CliDockerOpsTest {
         String cmd = String.join(" ", runner.cmds.getFirst());
         assertThat(cmd).startsWith("docker run -d")
                 .contains("--cpus 2").contains("--memory 4g").contains("--pids-limit 512")
-                .contains("--mount type=bind,source=C:\\Users\\泽泽\\.codex\\auth.json,target=/mnt/creds/codex/auth.json,readonly")
+                .contains("--mount type=bind,source=C:\\Users\\dev\\.codex\\auth.json,target=/mnt/creds/codex/auth.json,readonly")
                 .endsWith("playforge-sandbox:p2");
     }
 

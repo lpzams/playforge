@@ -9,7 +9,7 @@
 | Claude 凭证 | 用户环境变量 `PLAYFORGE_CLAUDE_TOKEN`（由 `claude setup-token` 生成），**启动后端的终端或 IDE 必须是在设置变量之后打开的** |
 | Codex 凭证 | `%USERPROFILE%\.codex\auth.json` 存在（执行过 `codex login`） |
 | 凭证能在容器内使用 | `bash sandbox/scripts/verify-creds.sh`，两边都回复 `pong` |
-| JDK 17+ | 本机用 `C:\Users\泽泽\.jdks\openjdk-22.0.1`；默认 JDK 11 不够用 |
+| JDK 17+ | 本机用 `C:\Users\<你的用户名>\.jdks\openjdk-22.0.1`；默认 JDK 11 不够用 |
 
 ## 启动
 

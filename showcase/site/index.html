@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PlayForge · 一句话生成可玩的小游戏</title>
+  <meta name="description" content="一句话生成 H5 小游戏：Claude 写代码、Codex 审查、Playwright 驱动的 AI 试玩发现问题自动修复。" />
+  <meta name="repo-url" content="https://github.com/lpzams/playforge" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <h1>PlayForge</h1>
+      <p class="lead">输入一句话，得到一个<strong>真的能玩</strong>的小游戏。</p>
+      <p class="sub">Claude 写代码 · Codex 审查 · AI 在浏览器里真的去玩，发现问题自动修复。下面每个游戏都是这样生成的，可以直接玩，也可以展开看它的生成过程。</p>
+      <div class="links">
+        <a id="repo-link" class="btn primary" href="#">查看源码</a>
+        <a class="btn" href="#games">直接玩游戏 ↓</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <h2>工作流程</h2>
+      <ol class="pipeline">
+        <li><b>一句话需求</b><span>例如"躲陨石的太空飞船游戏"</span></li>
+        <li><b>Claude 写代码</b><span>在 Docker 沙箱里基于带探针的 Vite 模板实现</span></li>
+        <li><b>Codex 审查</b><span>阻塞问题打回修复，最多 3 轮</span></li>
+        <li><b>AI 试玩</b><span>Playwright 读探针、按键、截图，检查能否真的玩</span></li>
+        <li><b>自动修复</b><span>试玩失败的原因交给 Claude，最多 2 次</span></li>
+        <li><b>提交 &amp; 预览</b><span>每轮一个 git 提交，通过后可在线玩</span></li>
+      </ol>
+      <div id="stats" class="stats"></div>
+    </section>
+
+    <section id="games">
+      <h2>生成的游戏</h2>
+      <p class="muted">点"开始玩"后先点一下游戏画面，再用键盘操作（方向键 / 空格）。</p>
+      <div id="game-list" class="games"></div>
+    </section>
+
+    <section>
+      <h2>技术要点</h2>
+      <div class="points">
+        <div><h3>可恢复的多 Agent 编排</h3><p>Java 21 + Spring Boot。纯函数状态机决定下一步，每一步落库；崩溃或重启后从断点续跑，不重复提交。审查分阻塞/建议两级，最终以试玩结果为准。</p></div>
+        <div><h3>AI 试玩（探针协议）</h3><p>生成的游戏必须暴露 <code>window.__GAME_PROBE__</code>。Playwright 在无输入对照下按键采样，判断操作是否真的生效；画面空白、报错、卡死、资源路径错误都能识别。</p></div>
+        <div><h3>Docker 预热沙箱</h3><p>CLI 在容器内运行，用完即毁；代码以 tar 流同步，拒绝 <code>..</code>、<code>.git</code> 变体与符号链接。强停后的残留容器下次启动自动清理。</p></div>
+        <div><h3>安全</h3><p>凭证只以环境变量名传入容器，事件流统一脱敏；预览运行在 CSP 沙箱（不透明源），生成的代码无法调用平台 API；AI 文本一律按纯文本渲染。</p></div>
+        <div><h3>实时与可追溯</h3><p>SSE 推送全过程，支持 <code>Last-Event-ID</code> 断线续传；同一份事件日志也是这里"生成过程"的数据来源。</p></div>
+        <div><h3>测试</h3><p>后端 190+ 测试（含真实 Docker 集成测试）、前端 30+ 测试，以及 14 个"有问题的游戏"样本专门验证试玩不会误判。</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap muted">
+    PlayForge · 数据由平台导出于 <span id="exported-at"></span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
