@@ -70,6 +70,17 @@ class PlaytestHarnessIntegrationTest {
         assertThat(run.report().path("failures")).isEmpty();
     }
 
+    /** The not-blank canvas shot is saved as the game's cover, so previews and the showcase get a thumbnail. */
+    @Test
+    void passingNotBlankWritesCoverIntoDist() throws Exception {
+        List<String> out = new CopyOnWriteArrayList<>();
+        new ProcessRunner().run(List.of("docker", "run", "--rm", IMAGE, "sh", "-c",
+                        "cp -r /opt/playtest/fixtures/good /tmp/g && node /opt/playtest/run.mjs --dist /tmp/g > /dev/null"
+                                + " && test -s /tmp/g/cover.png && echo COVER_OK"),
+                Map.of(), null, Duration.ofSeconds(150), new CancellationToken(), out::add);
+        assertThat(out).contains("COVER_OK");
+    }
+
     @Test
     void brokenFixtureReportsError() throws Exception {
         Run run = harness("broken");

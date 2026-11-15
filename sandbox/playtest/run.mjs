@@ -210,6 +210,10 @@ async function main() {
       const shot = await target.screenshot({ timeout: STEP_MS });
       const sd = grayStddev(shot);
       check('not_blank', sd >= BLANK_STDDEV, `gray stddev ${sd.toFixed(2)}`);
+      // The canvas shot doubles as the game's cover image (shipped with the build to preview and showcase).
+      if (sd >= BLANK_STDDEV) {
+        try { fs.writeFileSync(path.join(dist, 'cover.png'), shot); } catch { /* read-only dist: no cover */ }
+      }
     } catch (e) {
       check('not_blank', false, e.message);
     }

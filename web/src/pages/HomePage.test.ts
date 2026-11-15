@@ -39,6 +39,24 @@ describe('HomePage', () => {
     expect(cards[1].text()).toContain('可试玩');
   });
 
+  it('search filters the game list by title or prompt', async () => {
+    stubApi([['GET', /^\/api\/projects$/, () => json([
+      project('aaaaaaaaaaaa', '打砖块', '2026-11-10T00:00:00Z', 'SUCCEEDED', true),
+      project('bbbbbbbbbbbb', '贪吃蛇', '2026-11-14T00:00:00Z', 'SUCCEEDED'),
+    ])]]);
+    const { w } = await mountPage();
+
+    await w.find('input[data-test="search"]').setValue('砖');
+    expect(w.findAll('[data-test="project-card"]')).toHaveLength(1);
+    expect(w.text()).toContain('打砖块');
+  });
+
+  it('card shows the cover when a preview exists', async () => {
+    stubApi([['GET', /^\/api\/projects$/, () => json([project('aaaaaaaaaaaa', '打砖块', '2026-11-10T00:00:00Z', 'SUCCEEDED', true)])]]);
+    const { w } = await mountPage();
+    expect(w.find('[data-test="project-card"] img').attributes('src')).toBe('/preview/aaaaaaaaaaaa/cover.png');
+  });
+
   it('submit creates the project and navigates to it', async () => {
     const fetchMock = stubApi([
       ['GET', /^\/api\/projects$/, () => json([])],
