@@ -21,7 +21,9 @@ function el(tag, attrs = {}, ...children) {
 const duration = (ms) => (ms < 1000 ? '不到 1 秒' : ms < 60_000 ? `${Math.round(ms / 1000)} 秒` : `${Math.floor(ms / 60_000)} 分 ${Math.round((ms % 60_000) / 1000)} 秒`);
 const shortTitle = (t) => t.split(/[：:]/)[0].replace(/^一个/, '');
 const checkName = (n) => (n.startsWith('action:') ? `按键 ${n.slice(7)}` : CHECK_NAMES[n] || n);
-const playUrl = (g) => `games/${g.id}/play/index.html`;
+// The build stamp from this script's own URL (?v=...), so a redeploy also busts the cached game pages.
+const BUILD = new URL(document.currentScript.src).searchParams.get('v') || '';
+const playUrl = (g) => `games/${g.id}/play/index.html?v=${BUILD}`;
 const gameUrl = (g) => `game.html?id=${encodeURIComponent(g.id)}`;
 
 /** Splits a run's event log into its steps, each with the events that happened during it. */
