@@ -133,6 +133,7 @@ async function main() {
 
   document.getElementById('story-sub').textContent = `从一句话到能玩，一共 ${duration(a.totalMs)}。`;
   document.getElementById('feed').replaceChildren(...story(game));
+  setupReplay(game, () => story(game));
 }
 
 main().catch((e) => {
