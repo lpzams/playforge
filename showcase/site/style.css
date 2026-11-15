@@ -184,3 +184,27 @@ h1, h2, h3 { color: var(--text); font-weight: 400; }
   .replay-bar { flex-wrap: wrap; border-radius: 20px; }
   .replay-bar input[type="range"] { order: 5; flex-basis: 100%; }
 }
+
+/* ---------- what the platform caught: straight-to-AI vs PlayForge ---------- */
+.guard { margin-top: 40px; }
+.guard h2 { font-size: 20px; margin: 0 0 4px; }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.cmp { padding: 22px 24px; border-radius: var(--radius-lg); display: flex; flex-direction: column; }
+.cmp.before { background: var(--surface); }
+.cmp.after { background: #e8f0fe; }
+.cmp-title { font-size: 17px; color: var(--text); margin-bottom: 12px; }
+.cmp-lead { margin: 0 0 8px; font-size: 14px; color: var(--text-2); }
+.cmp blockquote { margin: 0 0 16px; padding: 2px 0 2px 14px; border-left: 3px solid #c4c7c5; font-size: 14px; color: var(--text); }
+.cmp-problems { margin: 0 0 16px; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; color: var(--text); }
+.cmp-problems .loc { display: block; font: 12px ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--muted); margin-top: 2px; }
+.gates { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 0; counter-reset: gate; }
+.gates li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; padding: 9px 0; font-size: 14px; border-top: 1px solid rgba(11, 87, 208, .1); }
+.gates li:first-child { border-top: 0; }
+.gate-who { color: var(--muted); }
+.gates .blocked .gate-text { color: var(--danger); }
+.gates .passed .gate-text { color: #146c2e; }
+.cmp-result { margin: auto 0 0; padding-top: 4px; font-size: 14.5px; font-weight: 500; color: var(--text); }
+.cmp.before .cmp-result { color: var(--danger); }
+.story { margin-top: 48px; }
+@media (max-width: 760px) { .compare { grid-template-columns: 1fr; } }
+.failed li span { display: block; margin: 2px 0 0; font-size: 12.5px; }

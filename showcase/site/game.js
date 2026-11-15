@@ -40,7 +40,7 @@ function entry(seg, reviewNo) {
     } else {
       said('试玩没有通过：', true);
       const ul = el('ul', { class: 'failed' });
-      for (const c of checks.filter((x) => !x.passed)) ul.append(el('li', {}, checkName(c.name), c.detail ? el('span', {}, c.detail) : null));
+      for (const c of checks.filter((x) => !x.passed)) ul.append(el('li', {}, failText(c), c.detail ? el('span', {}, `（${checkName(c.name)}：${c.detail}）`) : null));
       body.push(ul);
     }
   } else if (seg.type === 'COMMIT') {
@@ -77,6 +77,73 @@ function story(game) {
     }
   }
   return items;
+}
+
+const KEY_NAMES = { Space: '空格', ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Enter: '回车' };
+
+/** A failed playtest check in plain Chinese. */
+function failText(c) {
+  if (c.name.startsWith('action:')) {
+    const key = (c.detail || '').match(/pressing (\w+)/)?.[1];
+    return key ? `按${KEY_NAMES[key] || key}键后，游戏没有任何反应` : `「${c.name.slice(7)}」操作没有效果`;
+  }
+  return {
+    restart: '重新开始后，游戏没有回到初始状态', not_blank: '游戏画面是一片空白', load: '游戏页面打不开',
+    no_errors: '运行时有报错', probe: '游戏没有接入测试探针', build: '代码构建失败',
+  }[c.name] || `${checkName(c.name)}没有通过`;
+}
+
+const firstSentence = (s) => (s.match(/^[\s\S]*?[.。](?=\s|$)/)?.[0] || s).trim();
+
+/**
+ * What the platform caught: the same request handed straight to an AI (Claude stops at its first version) next to
+ * what PlayForge did with that version — every review and playtest gate in order, and what each one stopped.
+ */
+function guard(game) {
+  const events = game.runs.flatMap((r) => r.events);
+  const firstText = events.find((e) => e.type === 'AGENT_TEXT' && e.source === 'claude');
+  const gates = [];
+  const problems = [];
+  const seen = new Set();
+  let fixes = 0;
+  for (const run of game.runs) {
+    for (const seg of segments(run)) {
+      if (seg.type === 'FIX') fixes++;
+      if (seg.type === 'REVIEW') {
+        const issues = (seg.events.find((e) => e.type === 'REVIEW_RESULT')?.payload.issues || []).filter((i) => i.severity === 'BLOCKER');
+        for (const i of issues) problems.push({ by: 'Codex 审查发现', text: firstSentence(i.message), loc: i.file ? `${i.file}${i.line != null ? ':' + i.line : ''}` : null });
+        gates.push({ who: 'Codex 审查', blocked: issues.length > 0,
+          text: issues.length ? `拦下 ${issues.length} 个必须修改的问题，打回给 Claude` : '通过' });
+      } else if (seg.type === 'PLAYTEST') {
+        const p = seg.events.find((e) => e.type === 'PLAYTEST_RESULT')?.payload;
+        if (!p) continue;
+        const failed = (p.checks || []).filter((c) => !c.passed);
+        const again = failed.length > 0 && failed.every((c) => seen.has(c.name));
+        for (const c of failed) if (!seen.has(c.name)) { seen.add(c.name); problems.push({ by: '自动试玩发现', text: failText(c) }); }
+        gates.push({ who: '自动试玩', blocked: failed.length > 0,
+          text: failed.length ? `${again ? '修完再试，问题还在，再次打回' : `拦下：${failed.map(failText).join('；')}，打回给 Claude`}`
+            : `${(p.checks || []).length} 项检查全部通过，才允许提交上线` });
+      }
+    }
+  }
+
+  const said = firstText ? plain(firstText.payload.text.split('\n\n')[0]) : '第一版写好了。';
+  const n = problems.length;
+  const before = el('div', { class: 'cmp before' },
+    el('div', { class: 'cmp-title' }, '直接让 AI 写'),
+    el('p', { class: 'cmp-lead' }, 'Claude 交付第一版时说：'),
+    el('blockquote', {}, said),
+    el('p', { class: 'cmp-lead' }, n ? `到这里就结束了。这一版其实带着 ${n} 个问题：` : '到这里就结束了，没有人审查，也没有人真的玩过。'),
+    n ? el('ul', { class: 'cmp-problems' }, ...problems.map((p) => el('li', {}, p.text, p.loc ? el('span', { class: 'loc' }, p.loc) : null))) : null,
+    el('p', { class: 'cmp-result' }, n ? `结果：带着 ${n} 个问题交到你手上` : '结果：能不能玩，要你自己去试'));
+  const after = el('div', { class: 'cmp after' },
+    el('div', { class: 'cmp-title' }, '经过 PlayForge'),
+    el('p', { class: 'cmp-lead' }, '同一个第一版，接着要过两道关，不过就自动打回修改：'),
+    el('ol', { class: 'gates' }, ...gates.map((g) => el('li', { class: g.blocked ? 'blocked' : 'passed' },
+      el('span', { class: 'gate-who' }, g.who), el('span', { class: 'gate-text' }, g.text)))),
+    el('p', { class: 'cmp-result' }, [n ? `${n} 个问题在上线前修掉` : '两道关都一次通过', fixes ? `自动修复 ${fixes} 轮，没有人插手` : null,
+      `全程 ${duration(analyse(game).totalMs)}`].filter(Boolean).join(' · ')));
+  return [el('h2', {}, '平台拦下了什么'), el('p', { class: 'story-sub' }, '同一个需求：直接让 AI 写，和交给 PlayForge 写。'), el('div', { class: 'compare' }, before, after)];
 }
 
 const PAD = 10; // px of the game page background kept around its canvas (see hidpi.js)
@@ -130,6 +197,9 @@ async function main() {
   ].join(' · ');
   document.getElementById('game-prompt').textContent = game.prompt;
   mountGame(game, await canvasSize(game));
+  const g = document.getElementById('guard');
+  g.replaceChildren(...guard(game));
+  g.hidden = false;
 
   document.getElementById('story-sub').textContent = `从一句话到能玩，一共 ${duration(a.totalMs)}。`;
   document.getElementById('feed').replaceChildren(...story(game));

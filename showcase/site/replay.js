@@ -203,7 +203,7 @@ function setupReplay(game, restoreStatic) {
         const verdict = add(el('p', { class: `entry-text${failed.length ? ' bad' : ''}` }, failed.length ? '试玩没有通过：' : `${checks.length} 项检查全部通过。`));
         anims.push({ node: verdict, kind: 'show', start: b.t + b.dur - 300, dur: 0, owner: cur });
         if (failed.length) {
-          const ul = add(el('ul', { class: 'failed' }, ...failed.map((c) => el('li', {}, checkName(c.name), c.detail ? el('span', {}, c.detail) : null))));
+          const ul = add(el('ul', { class: 'failed' }, ...failed.map((c) => el('li', {}, failText(c), c.detail ? el('span', {}, `（${checkName(c.name)}：${c.detail}）`) : null))));
           anims.push({ node: ul, kind: 'show', start: b.t + b.dur - 300, dur: 0, owner: cur });
         }
         break;
