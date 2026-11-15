@@ -6,3 +6,4 @@ backend/target/
 node_modules/
 .superpowers/
 previews/
+web/dist/

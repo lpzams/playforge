@@ -1,0 +1,42 @@
+/* Simple, light, practical (user preference): Element Plus defaults, clear spacing, plain hierarchy. */
+:root {
+  --pf-border: #e4e7ed;
+  --pf-muted: #909399;
+  --pf-text: #303133;
+  --pf-bg: #f5f7fa;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--pf-bg);
+  color: var(--pf-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 14px 24px;
+  background: #fff;
+  border-bottom: 1px solid var(--pf-border);
+}
+
+.brand {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--pf-text);
+  text-decoration: none;
+}
+
+.tagline { color: var(--pf-muted); font-size: 13px; }
+
+.app-main { padding: 24px; }
+
+/* AI-produced text is rendered as text only; keep its line breaks. */
+.plain-text { white-space: pre-wrap; word-break: break-word; }
+
+.muted { color: var(--pf-muted); }
