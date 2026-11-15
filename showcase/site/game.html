@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>试玩 · PlayForge</title>
+  <meta name="repo-url" content="https://github.com/lpzams/playforge" />
+  <link rel="stylesheet" href="style.css?v=__BUILD__" />
+</head>
+<body class="game-page">
+  <nav class="topbar">
+    <div class="topbar-inner">
+      <a class="back" href="./">← 游戏广场</a>
+      <a class="btn small repo-link" href="#">GitHub 源码</a>
+    </div>
+  </nav>
+
+  <main class="game-main">
+    <header class="game-head">
+      <div id="game-avatar" class="avatar"></div>
+      <div class="game-info">
+        <div class="game-title-row">
+          <h1 id="game-title"></h1>
+          <span id="game-ver" class="ver"></span>
+        </div>
+        <div id="game-stats" class="game-stats"></div>
+        <p id="game-prompt" class="game-prompt"></p>
+      </div>
+    </header>
+
+    <section class="player">
+      <div id="stage" class="player-stage"></div>
+      <div class="player-bar">
+        <span class="muted">点击画面后用 ←/→、空格 等按键操作</span>
+        <div class="player-actions">
+          <button id="reload" class="btn small" type="button">↻ 重新开始</button>
+          <button id="fullscreen" class="btn small" type="button">⛶ 全屏</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="process-section">
+      <h2>生成过程 <span id="total" class="muted"></span></h2>
+      <ol id="stepper" class="stepper"></ol>
+      <div class="process-grid">
+        <div class="panel-box">
+          <h3>Codex 审查发现</h3>
+          <div id="reviews"></div>
+        </div>
+        <div class="panel-box">
+          <h3>AI 试玩检查</h3>
+          <div id="playtests"></div>
+        </div>
+      </div>
+      <details id="summary-box" class="panel-box summary-box" hidden>
+        <summary>Claude 的最终说明</summary>
+        <div id="summary" class="summary"></div>
+      </details>
+    </section>
+  </main>
+
+  <script src="common.js?v=__BUILD__"></script>
+  <script src="game.js?v=__BUILD__"></script>
+</body>
+</html>
