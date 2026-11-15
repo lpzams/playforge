@@ -14,6 +14,7 @@ spring:
 playforge:
   workspace-root: ../workspaces
   preview-root: ../previews
+  web-root: ../web/dist
   orchestration:
     max-review-rounds: 3
     max-playtest-fixes: 2

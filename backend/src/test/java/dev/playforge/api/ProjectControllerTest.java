@@ -31,6 +31,7 @@ class ProjectControllerTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired DemoCoderEngine demoCoder;
+    @Autowired dev.playforge.config.PlayforgeProperties props;
 
     JsonNode createProject(String prompt) throws Exception {
         String body = mvc.perform(post("/api/projects").contentType(MediaType.APPLICATION_JSON)
@@ -88,6 +89,27 @@ class ProjectControllerTest {
         List<String> ids = new java.util.ArrayList<>();
         list.forEach(p -> ids.add(p.get("id").asText()));
         assertThat(ids).contains(projectId);
+    }
+
+    @Test
+    void projectViewHasPreviewFlagAndTimes() throws Exception {
+        JsonNode created = createProject("预览标记");
+        String projectId = created.get("projectId").asText();
+        long runId = created.get("runId").asLong();
+        await().atMost(Duration.ofSeconds(20))
+                .until(() -> getJson("/api/runs/" + runId).get("status").asText().equals("SUCCEEDED"));
+
+        JsonNode project = getJson("/api/projects/" + projectId);
+        assertThat(project.get("previewAvailable").asBoolean()).isFalse();
+        assertThat(project.get("createdAt").asText()).isNotBlank();
+        JsonNode run = project.get("runs").get(0);
+        assertThat(run.get("createdAt").asText()).isNotBlank();
+        assertThat(run.get("startedAt").asText()).isNotBlank();
+        assertThat(run.get("finishedAt").asText()).isNotBlank();
+
+        java.nio.file.Path dir = java.nio.file.Files.createDirectories(props.previewDir().resolve(projectId));
+        java.nio.file.Files.writeString(dir.resolve("index.html"), "<!doctype html>");
+        assertThat(getJson("/api/projects/" + projectId).get("previewAvailable").asBoolean()).isTrue();
     }
 
     @Test

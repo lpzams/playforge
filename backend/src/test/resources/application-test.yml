@@ -5,6 +5,7 @@ spring:
 playforge:
   workspace-root: ${java.io.tmpdir}/playforge-test-workspaces
   preview-root: ${java.io.tmpdir}/playforge-test-previews
+  web-root: ${java.io.tmpdir}/playforge-test-no-web
   orchestration:
     retry-base-delay: 10ms
   recovery:

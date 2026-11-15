@@ -5,6 +5,7 @@ import dev.playforge.api.dto.CreateRunRequest;
 import dev.playforge.api.dto.CreatedResponse;
 import dev.playforge.api.dto.ProjectView;
 import dev.playforge.api.dto.RunView;
+import dev.playforge.config.PlayforgeProperties;
 import dev.playforge.orchestration.RunExecutor;
 import dev.playforge.run.Project;
 import dev.playforge.run.Run;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.file.Files;
 import java.util.List;
 
 @RestController
@@ -30,8 +32,10 @@ public class ProjectController {
 
     private final RunStore store;
     private final RunExecutor executor;
+    private final PlayforgeProperties props;
 
-    public ProjectController(RunStore store, RunExecutor executor) {
+    public ProjectController(RunStore store, RunExecutor executor, PlayforgeProperties props) {
+        this.props = props;
         this.store = store;
         this.executor = executor;
     }
@@ -71,7 +75,8 @@ public class ProjectController {
         List<RunView> runs = store.listRuns(p.getId()).stream()
                 .map(r -> RunView.of(r, store.listSteps(r.getId())))
                 .toList();
-        return new ProjectView(p.getId(), p.getTitle(), p.getPrompt(), runs);
+        boolean preview = Files.isRegularFile(props.previewDir().resolve(p.getId()).resolve("index.html"));
+        return new ProjectView(p.getId(), p.getTitle(), p.getPrompt(), p.getCreatedAt(), preview, runs);
     }
 
     private static String title(String prompt) {
