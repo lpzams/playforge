@@ -1,48 +1,55 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { ProjectView } from '../api/types';
-import { isActive } from '../api/client';
 import StatusTag from './StatusTag.vue';
 
 const props = defineProps<{ project: ProjectView }>();
 
 const latest = computed(() => props.project.runs[props.project.runs.length - 1]);
-const running = computed(() => !!latest.value && isActive(latest.value.status));
 const created = computed(() => new Date(props.project.createdAt).toLocaleString('zh-CN', { hour12: false }));
 const name = computed(() => props.project.title.split(/[：:]/)[0].replace(/^一个/, ''));
+const steps = computed(() => props.project.runs.reduce((n, r) => n + r.steps.length, 0));
 const coverFailed = ref(false);
 
 // Placeholder colour derived from the id, so each game keeps its own colour.
 const fallbackStyle = computed(() => {
   let h = 0;
   for (const c of props.project.id) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return { background: `linear-gradient(135deg, hsl(${h} 70% 45%), hsl(${(h + 50) % 360} 70% 35%))` };
+  return { background: `linear-gradient(135deg, hsl(${h} 65% 48%), hsl(${(h + 45) % 360} 65% 38%))` };
 });
 </script>
 
 <template>
   <router-link :to="`/projects/${project.id}`" class="card" data-test="project-card">
-    <div class="cover">
-      <img
-        v-if="project.previewAvailable && !coverFailed"
-        :src="`/preview/${project.id}/cover.png`"
-        :alt="`${name} 截图`"
-        loading="lazy"
-        @error="coverFailed = true"
-      />
-      <div v-else class="fallback" :style="fallbackStyle">{{ name.slice(0, 1) }}</div>
-      <span v-if="running" class="badge running">生成中…</span>
-      <span v-else-if="project.previewAvailable" class="badge">可试玩</span>
-    </div>
-    <div class="body">
-      <div class="title">
-        <b>{{ name }}</b>
-        <span class="ver">第 {{ project.runs.length }} 版</span>
+    <div class="top">
+      <div class="avatar">
+        <img
+          v-if="project.previewAvailable && !coverFailed"
+          :src="`/preview/${project.id}/cover.png`"
+          alt=""
+          loading="lazy"
+          @error="coverFailed = true"
+        />
+        <div v-else class="letter" :style="fallbackStyle">{{ name.slice(0, 1) }}</div>
       </div>
-      <p class="desc">{{ project.prompt }}</p>
-      <div class="foot">
+      <div class="title-box">
+        <div class="title">{{ name }}</div>
+        <span class="ver">版本 {{ project.runs.length }}</span>
+      </div>
+    </div>
+    <p class="desc">{{ project.prompt }}</p>
+    <div class="author">
+      <span class="faces"><span class="face claude">C</span><span class="face codex">X</span></span>
+      Claude × Codex
+    </div>
+    <div class="stats">
+      <div class="rating">
         <StatusTag v-if="latest" :status="latest.status" />
-        <span class="time">{{ created }}</span>
+        <span class="muted">{{ steps }} 个步骤</span>
+      </div>
+      <div class="usage">
+        <span>{{ created }}</span>
+        <span v-if="project.previewAvailable" class="pill">可试玩</span>
       </div>
     </div>
   </router-link>
@@ -50,22 +57,27 @@ const fallbackStyle = computed(() => {
 
 <style scoped>
 .card {
-  display: flex; flex-direction: column; overflow: hidden;
-  background: #fff; border: 1px solid var(--pf-border); border-radius: var(--pf-radius);
-  color: inherit; text-decoration: none;
-  transition: transform .15s, box-shadow .15s, border-color .15s;
+  display: flex; flex-direction: column; color: inherit; text-decoration: none;
+  background: #fff; border: 1px solid var(--pf-border); border-radius: 8px; padding: 20px 20px 14px;
+  transition: border-color .15s, box-shadow .15s;
 }
-.card:hover { transform: translateY(-2px); box-shadow: var(--pf-shadow-lg); border-color: #d6dbe3; }
-.cover { position: relative; aspect-ratio: 16 / 10; background: #0b0d12; overflow: hidden; }
-.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.fallback { position: absolute; inset: 0; display: grid; place-items: center; font-size: 40px; font-weight: 700; color: rgba(255, 255, 255, .92); }
-.badge { position: absolute; right: 10px; bottom: 10px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, .95); color: #15803d; box-shadow: var(--pf-shadow); }
-.badge.running { color: var(--pf-primary); }
-.body { padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-.title { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.title b { font-size: 16px; color: var(--pf-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ver { flex: none; font-size: 12px; color: var(--pf-muted); background: #f1f3f6; padding: 0 7px; border-radius: 6px; }
-.desc { margin: 0; font-size: 13px; color: var(--pf-body); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--pf-border); display: flex; align-items: center; gap: 8px; }
-.time { margin-left: auto; font-size: 12px; color: var(--pf-muted); }
+.card:hover { border-color: #c9ced5; box-shadow: 0 4px 14px rgba(31, 35, 40, .08); }
+.top { display: flex; gap: 14px; align-items: flex-start; }
+.avatar { flex: none; width: 64px; height: 64px; border-radius: 50%; overflow: hidden; background: #0b0d12; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.letter { width: 100%; height: 100%; display: grid; place-items: center; color: #fff; font-size: 26px; font-weight: 700; }
+.title-box { min-width: 0; }
+.title { font-size: 18px; font-weight: 700; color: var(--pf-primary); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ver { display: inline-block; margin-top: 5px; font-size: 13px; color: var(--pf-muted); background: #f1f3f5; padding: 0 8px; border-radius: 4px; }
+.desc { margin: 14px 0 12px; font-size: 14px; color: var(--pf-body); min-height: 66px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.author { display: flex; align-items: center; gap: 8px; color: var(--pf-primary); font-size: 14px; margin-bottom: 12px; }
+.faces { display: flex; }
+.face { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; border: 2px solid #fff; }
+.face + .face { margin-left: -6px; }
+.face.claude { background: #d97757; }
+.face.codex { background: #111827; }
+.stats { margin-top: auto; border-top: 1px solid var(--pf-border); padding-top: 10px; }
+.rating { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.usage { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--pf-muted); margin-top: 6px; }
+.pill { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--pf-primary); background: var(--pf-primary-soft); padding: 0 8px; border-radius: 4px; }
 </style>

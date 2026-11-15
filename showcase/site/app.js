@@ -1,4 +1,4 @@
-// Renders data/games.json. All text from the data (AI output included) is set with textContent only.
+// Renders data/games.json as an "app plaza". All text from the data (AI output included) is set with textContent only.
 const REPO_URL = document.querySelector('meta[name="repo-url"]')?.content || 'https://github.com/';
 const SANDBOX = 'allow-scripts allow-pointer-lock';
 
@@ -53,21 +53,18 @@ function analyse(game) {
   return { reviews, blockers, playtests, checks, tokens, totalMs };
 }
 
-function hue(id) {
+/** Round avatar: the game's cover (canvas shot from the playtest), or its first character on a colour. */
+function avatar(game, cls = 'avatar') {
+  const box = el('div', { class: cls });
   let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
-
-/** Cover image from the playtest's canvas shot; a coloured placeholder until one exists. */
-function cover(game) {
-  const box = el('div', { class: 'cover' });
-  const h = hue(game.id);
-  const fallback = el('div', { class: 'fallback' }, shortTitle(game.title).slice(0, 1));
-  fallback.style.background = `linear-gradient(135deg, hsl(${h} 70% 45%), hsl(${(h + 50) % 360} 70% 35%))`;
-  const img = el('img', { src: `games/${game.id}/play/cover.png`, alt: `${shortTitle(game.title)} 截图`, loading: 'lazy' });
-  img.addEventListener('error', () => img.replaceWith(fallback));
-  box.append(img, el('span', { class: 'play' }, '▶ 试玩 & 生成过程'));
+  for (const c of game.id) h = (h * 31 + c.charCodeAt(0)) % 360;
+  const letter = () => {
+    box.replaceChildren(shortTitle(game.title).slice(0, 1));
+    box.style.background = `linear-gradient(135deg, hsl(${h} 65% 48%), hsl(${(h + 45) % 360} 65% 38%))`;
+  };
+  const img = el('img', { src: `games/${game.id}/play/cover.png`, alt: '', loading: 'lazy' });
+  img.addEventListener('error', letter);
+  box.append(img);
   return box;
 }
 
@@ -75,16 +72,21 @@ function card(game) {
   const a = analyse(game);
   const passed = a.checks.filter((c) => c.passed).length;
   const node = el('button', { class: 'card', type: 'button' },
-    cover(game),
-    el('div', { class: 'card-body' },
-      el('div', { class: 'card-title' }, el('b', {}, shortTitle(game.title)), el('span', { class: 'ver' }, `第 ${game.runs.length} 版`)),
-      el('p', { class: 'desc' }, game.prompt),
-      el('div', { class: 'by' }, '🤖 Claude 写 · Codex 审 · AI 试玩'),
-      el('div', { class: 'card-foot' },
-        el('span', { class: 'ok' }, `✓ 试玩 ${passed}/${a.checks.length}`),
-        a.blockers.length ? el('span', { class: 'bug' }, `🐞 审查抓到 ${a.blockers.length} 个 bug`) : el('span', {}, '审查一次通过'),
-        el('span', {}, `⏱ ${duration(a.totalMs)}`),
-        a.tokens ? el('span', {}, `${Math.round(a.tokens / 1000)}k tokens`) : null)));
+    el('div', { class: 'card-top' },
+      avatar(game),
+      el('div', { class: 'title-box' },
+        el('div', { class: 'title' }, shortTitle(game.title)),
+        el('span', { class: 'ver' }, `版本 ${game.runs.length}`))),
+    el('p', { class: 'desc' }, game.prompt),
+    el('div', { class: 'author' },
+      el('span', { class: 'faces' }, el('span', { class: 'face claude' }, 'C'), el('span', { class: 'face codex' }, 'X')),
+      'Claude × Codex'),
+    el('div', { class: 'stats' },
+      el('div', { class: 'rating' }, el('span', { class: 'star' }, '★ '), `AI 试玩 ${passed}/${a.checks.length} 项通过`),
+      el('div', { class: 'usage' },
+        el('span', {}, `用时 ${duration(a.totalMs)}`),
+        el('span', {}, a.blockers.length ? `修复 ${a.blockers.length} 个 bug` : '审查一次通过'),
+        el('span', { class: 'pill' }, '可试玩'))));
   node.addEventListener('click', () => openModal(game));
   return node;
 }
@@ -145,7 +147,9 @@ function processView(game) {
 const modal = document.getElementById('modal');
 
 function openModal(game) {
+  document.getElementById('modal-avatar').replaceWith(Object.assign(avatar(game, 'avatar sm'), { id: 'modal-avatar' }));
   document.getElementById('modal-title').textContent = shortTitle(game.title);
+  document.getElementById('modal-ver').textContent = `版本 ${game.runs.length}`;
   document.getElementById('modal-prompt').textContent = `需求：${game.prompt}`;
   document.getElementById('modal-stage').replaceChildren(el('iframe', { src: playUrl(game), sandbox: SANDBOX, title: shortTitle(game.title) }));
   document.getElementById('modal-process').replaceChildren(processView(game));
@@ -162,38 +166,41 @@ function closeModal() {
 modal.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeModal(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) closeModal(); });
 
-function livePlayer(games) {
-  let i = 0;
-  const show = () => {
-    const g = games[i];
-    document.getElementById('live-title').textContent = shortTitle(g.title);
-    document.getElementById('live-stage').replaceChildren(el('iframe', { src: playUrl(g), sandbox: SANDBOX, title: shortTitle(g.title) }));
-  };
-  document.getElementById('live-prev').addEventListener('click', () => { i = (i - 1 + games.length) % games.length; show(); });
-  document.getElementById('live-next').addEventListener('click', () => { i = (i + 1) % games.length; show(); });
-  show();
-}
+const state = { games: [], query: '', sort: 'newest', bugOnly: false, view: 'grid' };
 
-function stats(games) {
-  const all = games.map(analyse);
-  const blockers = all.reduce((n, a) => n + a.blockers.length, 0);
-  const avg = all.length ? all.reduce((n, a) => n + a.totalMs, 0) / all.length : 0;
-  const stat = (v, label) => el('div', { class: 'stat' }, el('b', {}, v), el('span', {}, label));
-  document.getElementById('stats').replaceChildren(
-    stat(String(games.length), '个可玩的游戏'),
-    stat(String(blockers), '个 bug 被审查抓到'),
-    stat(duration(avg).replace(' 秒', 's').replace(' 分 ', 'm'), '平均生成用时'));
+function render() {
+  const q = state.query.trim().toLowerCase();
+  let list = state.games.filter((g) => !q || g.title.toLowerCase().includes(q) || g.prompt.toLowerCase().includes(q));
+  if (state.bugOnly) list = list.filter((g) => analyse(g).blockers.length > 0);
+  list = state.sort === 'fastest'
+    ? [...list].sort((a, b) => analyse(a).totalMs - analyse(b).totalMs)
+    : [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const grid = document.getElementById('game-list');
+  grid.className = state.view === 'list' ? 'cards list' : 'cards';
+  grid.replaceChildren(...list.map(card));
+  document.getElementById('count').textContent = String(list.length);
+  document.getElementById('empty').hidden = list.length > 0;
+  document.getElementById('sort').textContent = state.sort === 'fastest' ? '⇅ 用时最短' : '⇅ 最新生成';
+  document.getElementById('sort-label').textContent = state.sort === 'fastest' ? '按生成用时排序' : '按生成时间排序';
+  document.getElementById('filter-bug').setAttribute('aria-pressed', String(state.bugOnly));
+  document.getElementById('view-grid').classList.toggle('active', state.view === 'grid');
+  document.getElementById('view-list').classList.toggle('active', state.view === 'list');
 }
 
 async function main() {
   for (const a of document.querySelectorAll('.repo-link')) a.href = REPO_URL;
+  for (const a of document.querySelectorAll('.readme-link')) a.href = `${REPO_URL}#readme`;
+  document.getElementById('search').addEventListener('input', (e) => { state.query = e.target.value; render(); });
+  document.getElementById('sort').addEventListener('click', () => { state.sort = state.sort === 'newest' ? 'fastest' : 'newest'; render(); });
+  document.getElementById('filter-bug').addEventListener('click', () => { state.bugOnly = !state.bugOnly; render(); });
+  document.getElementById('view-grid').addEventListener('click', () => { state.view = 'grid'; render(); });
+  document.getElementById('view-list').addEventListener('click', () => { state.view = 'list'; render(); });
+
   const data = await (await fetch('data/games.json')).json();
-  const games = [...data.games].reverse();
+  state.games = data.games;
   document.getElementById('exported-at').textContent = new Date(data.exportedAt).toLocaleString('zh-CN', { hour12: false });
-  document.getElementById('game-count').textContent = `共 ${games.length} 个`;
-  stats(games);
-  if (games.length) livePlayer(games);
-  document.getElementById('game-list').replaceChildren(...games.map(card));
+  render();
 }
 
 main().catch((e) => {
