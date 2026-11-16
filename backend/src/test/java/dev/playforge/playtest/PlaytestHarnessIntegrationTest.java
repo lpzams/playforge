@@ -130,6 +130,18 @@ class PlaytestHarnessIntegrationTest {
         assertThat(run.check("action:left")).as(run.report().toString()).isFalse();
     }
 
+    /**
+     * Snake: everything moves without input and the keys only turn it; the key it is already heading in (and the
+     * reverse) does nothing. Every direction must still pass: by a change of direction, after setting up another
+     * direction first.
+     */
+    @Test
+    void steeringByDirectionChangePasses() throws Exception {
+        Run run = harness("snake");
+        assertThat(run.report().path("passed").asBoolean()).as(run.report().toString()).isTrue();
+        assertThat(run.checkNames()).contains("action:up", "action:down", "action:left", "action:right");
+    }
+
     /** A jump that lands before key release still counts. */
     @Test
     void shortJumpPasses() throws Exception {

@@ -141,6 +141,39 @@ function changesOver(first, samples, playersOnly) {
   return { ids, status };
 }
 
+/**
+ * Typical step of an entity across a series of states: the per-axis median of the sample-to-sample moves, so a
+ * single jump (wrapping around the screen, respawning) does not count as a change of direction.
+ */
+function medianStep(states, id) {
+  const pos = states.map((s) => entitiesOf(s, false).find((e) => String(e.id) === id)).filter(Boolean);
+  if (pos.length < 3) return null;
+  const median = (xs) => { const a = [...xs].sort((p, q) => p - q); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  const dx = [];
+  const dy = [];
+  for (let i = 1; i < pos.length; i++) { dx.push((pos[i].x ?? 0) - (pos[i - 1].x ?? 0)); dy.push((pos[i].y ?? 0) - (pos[i - 1].y ?? 0)); }
+  return { x: median(dx), y: median(dy) };
+}
+
+/** Ids whose typical movement turned by more than 45 degrees, or started or stopped, between two windows. */
+function turnedIds(baseStates, keyStates, playersOnly) {
+  const out = [];
+  const MOVING = 0.5;
+  for (const e of entitiesOf(keyStates[0], playersOnly)) {
+    const id = String(e.id);
+    const b = medianStep(baseStates, id);
+    const k = medianStep(keyStates, id);
+    if (!b || !k) continue;
+    const mb = Math.hypot(b.x, b.y);
+    const mk = Math.hypot(k.x, k.y);
+    if (mb < MOVING && mk < MOVING) continue;
+    if ((mb < MOVING) !== (mk < MOVING)) { out.push(id); continue; }
+    const cos = (b.x * k.x + b.y * k.y) / (mb * mk);
+    if (cos < Math.cos(Math.PI / 4)) out.push(id);
+  }
+  return out;
+}
+
 async function main() {
   const dist = argValue('--dist');
   if (!dist || !fs.existsSync(path.join(dist, 'index.html'))) {
@@ -225,7 +258,58 @@ async function main() {
 
     const getState = () => withTimeout(page.evaluate(() => window.__GAME_PROBE__.getState()), STEP_MS, 'getState');
 
+    const sampleFor = async (ms) => {
+      const out = [];
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        await sleep(SAMPLE_MS);
+        out.push(await getState());
+      }
+      return out;
+    };
+    const hold = async (keys) => {
+      for (const k of keys) await withTimeout(page.keyboard.down(k), STEP_MS, `key ${k}`);
+      await sleep(HOLD_MS);
+      for (const k of keys) await withTimeout(page.keyboard.up(k), STEP_MS, `key ${k}`);
+    };
+
+    /**
+     * Whether holding an action's keys does something beyond what happens anyway: entities appear, disappear or
+     * move (that don't without input), the status changes, or an entity changes direction or starts/stops moving
+     * (steering: a snake moves either way, the key only turns it).
+     */
+    const measure = async (action) => {
+      let s = await getState();
+      if (s.status === 'gameover') {
+        await withTimeout(page.evaluate(() => window.__GAME_PROBE__.restart()), STEP_MS, 'restart');
+        s = await getState();
+      }
+      if (s.status === 'ready' || s.status === 'paused') {
+        await withTimeout(page.evaluate(() => window.__GAME_PROBE__.start()), STEP_MS, 'start');
+        await sleep(SAMPLE_MS);
+      }
+      // Baseline: what changes over the same time WITHOUT input (falling rocks, drifting clouds...).
+      const base0 = await getState();
+      const playersOnly = entitiesOf(base0, false).some((e) => e.type === 'player');
+      const baseSamples = await sampleFor(HOLD_MS);
+      const baseline = changesOver(base0, baseSamples, playersOnly);
+
+      // With the keys held, sampled throughout so short actions (jump, shoot) are seen.
+      const key0 = await getState();
+      for (const k of action.keys) await withTimeout(page.keyboard.down(k), STEP_MS, `key ${k}`);
+      const held = await sampleFor(HOLD_MS);
+      for (const k of action.keys) await withTimeout(page.keyboard.up(k), STEP_MS, `key ${k}`);
+      held.push(await getState());
+      const keyed = changesOver(key0, held, playersOnly);
+
+      const novel = [...keyed.ids].filter((id) => !baseline.ids.has(id));
+      const turned = turnedIds([base0, ...baseSamples], [key0, ...held], playersOnly);
+      const ok = novel.length > 0 || turned.length > 0 || (keyed.status && !baseline.status);
+      return { ok, novel, turned, playersOnly };
+    };
+
     // action:<name>
+    const controls = probe ? probe.actions.filter((a) => !LIFECYCLE_ACTIONS.test(a.name)) : [];
     if (probe) {
       if (probe.actions.length === 0) check('action:none', false, 'probe declares no actions');
       for (const action of probe.actions) {
@@ -237,44 +321,20 @@ async function main() {
           continue;
         }
         try {
-          let s = await getState();
-          if (s.status === 'gameover') {
-            await withTimeout(page.evaluate(() => window.__GAME_PROBE__.restart()), STEP_MS, 'restart');
-            s = await getState();
+          let m = await measure(action);
+          let via = '';
+          // A key can legitimately do nothing in the current state (snake: the direction it is already heading,
+          // or the reverse). Set up a different state with another control first, then try again.
+          for (const other of controls.filter((a) => a !== action).slice(0, 3)) {
+            if (m.ok) break;
+            await hold(other.keys);
+            m = await measure(action);
+            via = ` (after ${other.name})`;
           }
-          if (s.status === 'ready' || s.status === 'paused') {
-            await withTimeout(page.evaluate(() => window.__GAME_PROBE__.start()), STEP_MS, 'start');
-            await sleep(SAMPLE_MS);
-          }
-          const sampleFor = async (ms) => {
-            const out = [];
-            const end = Date.now() + ms;
-            while (Date.now() < end) {
-              await sleep(SAMPLE_MS);
-              out.push(await getState());
-            }
-            return out;
-          };
-
-          // Baseline: what changes over the same time WITHOUT input (falling rocks, drifting clouds...).
-          const base0 = await getState();
-          const playersOnly = entitiesOf(base0, false).some((e) => e.type === 'player');
-          const baseline = changesOver(base0, await sampleFor(HOLD_MS), playersOnly);
-
-          // With the keys held, sampled throughout so short actions (jump, shoot) are seen.
-          const key0 = await getState();
-          for (const k of action.keys) await withTimeout(page.keyboard.down(k), STEP_MS, `key ${k}`);
-          const held = await sampleFor(HOLD_MS);
-          for (const k of action.keys) await withTimeout(page.keyboard.up(k), STEP_MS, `key ${k}`);
-          held.push(await getState());
-          const keyed = changesOver(key0, held, playersOnly);
-
-          const novel = [...keyed.ids].filter((id) => !baseline.ids.has(id));
-          const ok = novel.length > 0 || (keyed.status && !baseline.status);
-          const scope = playersOnly ? "entities of type 'player'" : 'entities';
-          check(name, ok, ok
-            ? `changed: ${novel.join(', ') || 'status'}`
-            : `pressing ${action.keys.join('+')} for ${HOLD_MS}ms changed no ${scope} or status beyond what changes without input`);
+          const scope = m.playersOnly ? "entities of type 'player'" : 'entities';
+          check(name, m.ok, m.ok
+            ? `${m.turned.length ? `turned: ${m.turned.join(', ')}` : `changed: ${m.novel.join(', ') || 'status'}`}${via}`
+            : `pressing ${action.keys.join('+')} for ${HOLD_MS}ms changed no ${scope}, their direction or status beyond what changes without input`);
         } catch (e) {
           check(name, false, e.message);
         }

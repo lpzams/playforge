@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head><meta charset="UTF-8"><title>snake</title></head>
+<body style="margin:0;background:#111">
+<canvas id="c" width="320" height="200"></canvas>
+<script>
+  // Snake: it moves on its own every tick; the arrow keys only change its direction, and reversing is not allowed.
+  // No entity is typed 'player', and pressing the key it is already heading in does nothing: the harness must
+  // detect a change of direction and retry a key from a different state.
+  const c = document.getElementById('c'), g = c.getContext('2d');
+  const CELL = 10, W = 32, H = 20;
+  const s = { status: 'ready', dir: { x: 1, y: 0 }, next: { x: 1, y: 0 }, body: [], acc: 0 };
+  function reset() { s.body = [{ x: 8, y: 10 }, { x: 7, y: 10 }, { x: 6, y: 10 }]; s.dir = { x: 1, y: 0 }; s.next = { x: 1, y: 0 }; s.acc = 0; }
+  reset();
+  const DIRS = { ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 }, ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 } };
+  addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && s.status === 'ready') s.status = 'playing';
+    const d = DIRS[e.code];
+    if (d && !(d.x === -s.dir.x && d.y === -s.dir.y)) s.next = d;
+  });
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (s.status === 'playing') {
+      s.acc += dt;
+      while (s.acc >= 0.08) {
+        s.acc -= 0.08;
+        s.dir = s.next;
+        const h = s.body[0];
+        // wraps around the edges, so the test never ends in a game over
+        s.body.unshift({ x: (h.x + s.dir.x + W) % W, y: (h.y + s.dir.y + H) % H });
+        s.body.pop();
+      }
+    }
+    g.fillStyle = '#203040'; g.fillRect(0, 0, 320, 200);
+    g.fillStyle = '#66dd66'; for (const p of s.body) g.fillRect(p.x * CELL, p.y * CELL, CELL - 1, CELL - 1);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__GAME_PROBE__ = {
+    version: 1,
+    getState: () => ({ status: s.status, score: 0,
+      entities: s.body.map((p, i) => ({ id: i === 0 ? 'head' : 'body' + i, type: i === 0 ? 'snake-head' : 'snake-body', x: p.x * CELL, y: p.y * CELL })) }),
+    actions: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].map((k) => ({ name: k.slice(5).toLowerCase(), keys: [k] })),
+    events: [],
+    start() { if (s.status === 'ready') s.status = 'playing'; },
+    restart() { s.status = 'ready'; reset(); },
+  };
+</script>
+</body>
+</html>
