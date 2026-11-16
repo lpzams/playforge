@@ -164,6 +164,39 @@ class AiPlaytestOrchestrationTest {
         assertThat(aiPlayOf(events(run, RunEventType.PLAYTEST_RESULT).getLast()).get("skipped").toString()).contains("no playable script");
     }
 
+    /** Not only engine errors: anything going wrong around the AI round must leave a passing game passing. */
+    @Test
+    void anyPlayerOrPlayCrashLeavesAPassingGamePassing() {
+        scriptedPlayer.script.add((r, s, k, c) -> { throw new IllegalStateException("no PLAYER engine named demo"); });
+        assertThat(run().getStatus()).isEqualTo(RunStatus.SUCCEEDED);
+
+        reset();
+        playtester.playThrows = new IllegalStateException("docker exec failed");
+        Run run = run();
+        assertThat(run.getStatus()).isEqualTo(RunStatus.SUCCEEDED);
+        assertThat(aiPlayOf(events(run, RunEventType.PLAYTEST_RESULT).getLast()))
+                .containsEntry("inconclusive", true).containsEntry("error", "docker exec failed");
+    }
+
+    @Test
+    void judgeRuntimeFailureIsReportOnly() {
+        scriptedJudge.script.add((r, s, k, c) -> { throw new IllegalStateException("judge broke"); });
+        Run run = run();
+        assertThat(run.getStatus()).isEqualTo(RunStatus.SUCCEEDED);
+        assertThat(events(run, RunEventType.FUN_SCORE)).isEmpty();
+    }
+
+    /** The playthrough and the judge are AI-controlled text published as system events: redact them too. */
+    @Test
+    void aiPlayAndFunScoreEventsAreRedacted() {
+        String secret = OrchestrationTestConfig.TEST_SECRET;
+        playtester.plays.add(new AiPlayResult(true, null, List.of(new AiPlayResult.Assertion("key " + secret, true)),
+                List.of(new AiPlayResult.Shot("playtest/01-start.png", "start")), List.of("env " + secret), 10));
+        scriptedJudge.script.add((r, s, k, c) -> text("{\"scores\":{\"fit\":3},\"summary\":\"leak " + secret + "\",\"suggestions\":[]}"));
+        Run run = run();
+        assertThat(events.history(run.getId(), 0).toString()).doesNotContain(secret);
+    }
+
     @Test
     void judgeFailureIsReportOnly() {
         scriptedJudge.script.add((r, s, k, c) -> { throw new EngineException("judge crashed", false, null); });

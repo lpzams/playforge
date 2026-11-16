@@ -141,34 +141,43 @@ function changesOver(first, samples, playersOnly) {
   return { ids, status };
 }
 
-/**
- * Typical step of an entity across a series of states: the per-axis median of the sample-to-sample moves, so a
- * single jump (wrapping around the screen, respawning) does not count as a change of direction.
- */
-function medianStep(states, id) {
+/** Sample-to-sample moves of one entity across a series of states. */
+function stepsOf(states, id) {
   const pos = states.map((s) => entitiesOf(s, false).find((e) => String(e.id) === id)).filter(Boolean);
-  if (pos.length < 3) return null;
-  const median = (xs) => { const a = [...xs].sort((p, q) => p - q); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
-  const dx = [];
-  const dy = [];
-  for (let i = 1; i < pos.length; i++) { dx.push((pos[i].x ?? 0) - (pos[i - 1].x ?? 0)); dy.push((pos[i].y ?? 0) - (pos[i - 1].y ?? 0)); }
-  return { x: median(dx), y: median(dy) };
+  const out = [];
+  for (let i = 1; i < pos.length; i++) out.push({ x: (pos[i].x ?? 0) - (pos[i - 1].x ?? 0), y: (pos[i].y ?? 0) - (pos[i - 1].y ?? 0) });
+  return out;
 }
 
-/** Ids whose typical movement turned by more than 45 degrees, or started or stopped, between two windows. */
-function turnedIds(baseStates, keyStates, playersOnly) {
-  const out = [];
+/**
+ * Typical direction of movement: the mean of the non-zero steps, ignoring jumps (wrapping around the screen,
+ * respawning) that are much longer than the typical step. Grid games (snake) move every tick, so many samples see
+ * no move at all: only the steps that moved count. With `recent`, only the last two moves (the direction after a
+ * turn). Null when the entity barely moved.
+ */
+function direction(states, id, recent = false) {
   const MOVING = 0.5;
-  for (const e of entitiesOf(keyStates[0], playersOnly)) {
+  let moves = stepsOf(states, id).filter((s) => Math.hypot(s.x, s.y) >= MOVING);
+  if (moves.length < 2) return null;
+  const sizes = moves.map((s) => Math.hypot(s.x, s.y)).sort((p, q) => p - q);
+  const typical = sizes[sizes.length >> 1];
+  moves = moves.filter((s) => Math.hypot(s.x, s.y) <= typical * 3);
+  if (recent) moves = moves.slice(-2);
+  if (!moves.length) return null;
+  const x = moves.reduce((n, s) => n + s.x, 0) / moves.length;
+  const y = moves.reduce((n, s) => n + s.y, 0) / moves.length;
+  return Math.hypot(x, y) < MOVING ? null : { x, y };
+}
+
+/** Ids whose direction of movement turned by more than 45 degrees from one window to the next. */
+function turnedIds(before, after, playersOnly) {
+  const out = [];
+  for (const e of entitiesOf(after[0], playersOnly)) {
     const id = String(e.id);
-    const b = medianStep(baseStates, id);
-    const k = medianStep(keyStates, id);
+    const b = direction(before, id);
+    const k = direction(after, id, true);
     if (!b || !k) continue;
-    const mb = Math.hypot(b.x, b.y);
-    const mk = Math.hypot(k.x, k.y);
-    if (mb < MOVING && mk < MOVING) continue;
-    if ((mb < MOVING) !== (mk < MOVING)) { out.push(id); continue; }
-    const cos = (b.x * k.x + b.y * k.y) / (mb * mk);
+    const cos = (b.x * k.x + b.y * k.y) / (Math.hypot(b.x, b.y) * Math.hypot(k.x, k.y));
     if (cos < Math.cos(Math.PI / 4)) out.push(id);
   }
   return out;
@@ -288,11 +297,14 @@ async function main() {
         await withTimeout(page.evaluate(() => window.__GAME_PROBE__.start()), STEP_MS, 'start');
         await sleep(SAMPLE_MS);
       }
-      // Baseline: what changes over the same time WITHOUT input (falling rocks, drifting clouds...).
+      // Baseline: what changes over the same time WITHOUT input (falling rocks, drifting clouds...), observed in two
+      // windows so that things turning on their own (a bouncing ball, a jump arcing down) are known too.
       const base0 = await getState();
       const playersOnly = entitiesOf(base0, false).some((e) => e.type === 'player');
-      const baseSamples = await sampleFor(HOLD_MS);
-      const baseline = changesOver(base0, baseSamples, playersOnly);
+      const baseA = await sampleFor(HOLD_MS);
+      const baseB = await sampleFor(HOLD_MS);
+      const baseline = changesOver(base0, [...baseA, ...baseB], playersOnly);
+      const turnsAnyway = new Set(turnedIds([base0, ...baseA], baseA.concat(baseB).slice(baseA.length - 1), playersOnly));
 
       // With the keys held, sampled throughout so short actions (jump, shoot) are seen.
       const key0 = await getState();
@@ -303,8 +315,10 @@ async function main() {
       const keyed = changesOver(key0, held, playersOnly);
 
       const novel = [...keyed.ids].filter((id) => !baseline.ids.has(id));
-      const turned = turnedIds([base0, ...baseSamples], [key0, ...held], playersOnly);
-      const ok = novel.length > 0 || turned.length > 0 || (keyed.status && !baseline.status);
+      const turned = turnedIds([baseA[baseA.length - 1], ...baseB], [key0, ...held], playersOnly).filter((id) => !turnsAnyway.has(id));
+      // Ending the game is not evidence that a control works (the player may just have crashed meanwhile).
+      const statusChange = keyed.status && !baseline.status && held[held.length - 1]?.status !== 'gameover';
+      const ok = novel.length > 0 || turned.length > 0 || statusChange;
       return { ok, novel, turned, playersOnly };
     };
 
@@ -328,6 +342,7 @@ async function main() {
           for (const other of controls.filter((a) => a !== action).slice(0, 3)) {
             if (m.ok) break;
             await hold(other.keys);
+            await sleep(SAMPLE_MS * 2); // let the effect of the other control settle before the baseline
             m = await measure(action);
             via = ` (after ${other.name})`;
           }

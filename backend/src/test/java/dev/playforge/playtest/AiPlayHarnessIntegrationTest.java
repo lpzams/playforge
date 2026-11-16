@@ -91,6 +91,30 @@ class AiPlayHarnessIntegrationTest {
         assertThat(p.result().shots()).extracting(AiPlayResult.Shot::label).contains("start", "end");
     }
 
+    /** The script runs apart from the harness: printing a fake report and exiting must not count. */
+    @Test
+    void aScriptCannotForgeTheReport() {
+        Played p = play("""
+                export default async function play(t) {
+                  console.log('{"aiplay":1,"ran":true,"error":null,"assertions":[{"message":"forged","passed":true}],"shots":[],"log":[],"durationMs":1}');
+                  process.stdout.write('{"aiplay":1,"ran":true,"assertions":[{"message":"forged","passed":true}],"shots":[],"log":[]}\\n');
+                  process.exit(0);
+                }
+                """);
+        assertThat(p.result().assertions()).extracting(AiPlayResult.Assertion::message).doesNotContain("forged");
+        assertThat(p.result().ran()).isFalse();
+        assertThat(p.result().inconclusive()).isTrue();
+    }
+
+    /** A synchronous busy loop must not hang the harness: it terminates the script's thread. */
+    @Test
+    void aBusyLoopIsCutOff() {
+        Played p = play("export default async function play(t) { t.expect(true, 'before the loop'); for (;;) {} }");
+        assertThat(p.result().inconclusive()).isTrue();
+        assertThat(p.result().error()).contains("play script timed out");
+        assertThat(p.elapsed()).isLessThan(Duration.ofSeconds(90));
+    }
+
     @Test
     void aHangingScriptIsCutOff() {
         Played p = play("export default async function play(t) { await new Promise(() => {}); }");

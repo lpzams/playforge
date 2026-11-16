@@ -8,7 +8,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import { chromium } from 'playwright';
 
 const TOTAL_MS = 80_000;
@@ -131,48 +131,54 @@ async function main() {
     };
 
     const getState = () => withTimeout(page.evaluate(() => window.__GAME_PROBE__.getState()), STEP_MS, 'state()');
+    const down = async (keys) => { for (const k of keysOf(keys)) await withTimeout(page.keyboard.down(k), STEP_MS, `down ${k}`); };
+    const up = async (keys) => { for (const k of keysOf(keys)) await withTimeout(page.keyboard.up(k), STEP_MS, `up ${k}`); };
     let scriptShots = 0;
-    const t = Object.freeze({
-      actions,
+    let finished = false;
+    let resolveDone;
+    const done = new Promise((r) => { resolveDone = r; });
+    // What the script may ask for. Results are recorded here, in the harness, never reported by the script.
+    const api = {
       state: getState,
       start: () => withTimeout(page.evaluate(() => window.__GAME_PROBE__.start()), STEP_MS, 'start()'),
       restart: () => withTimeout(page.evaluate(() => window.__GAME_PROBE__.restart()), STEP_MS, 'restart()'),
-      wait: (ms) => sleep(Math.max(0, Math.min(Number(ms) || 0, 10_000))),
-      down: async (keys) => { for (const k of keysOf(keys)) await withTimeout(page.keyboard.down(k), STEP_MS, `down ${k}`); },
-      up: async (keys) => { for (const k of keysOf(keys)) await withTimeout(page.keyboard.up(k), STEP_MS, `up ${k}`); },
-      press: async (keys, ms = 150) => {
-        await t.down(keys);
-        await sleep(Math.max(0, Math.min(Number(ms) || 0, 5_000)));
-        await t.up(keys);
-      },
-      waitFor: async (predicate, ms = 3_000) => {
-        const end = Date.now() + Math.min(Number(ms) || 0, 15_000);
-        while (Date.now() < end) {
-          try { if (predicate(await getState())) return true; } catch { /* keep polling */ }
-          await sleep(50);
-        }
-        return false;
-      },
-      expect: (cond, message) => {
-        if (assertions.length < MAX_ASSERTIONS) assertions.push({ message: String(message).slice(0, 300), passed: !!cond });
-        return !!cond;
-      },
-      shot: async (label) => {
-        if (scriptShots >= MAX_SCRIPT_SHOTS) return;
-        scriptShots++;
-        await shoot(label);
-      },
-      log: (msg) => { if (log.length < MAX_LOG) log.push(String(msg).slice(0, 300)); },
-    });
+      wait: (ms) => sleep(Math.max(0, Math.min(ms, 10_000))),
+      down,
+      up,
+      press: async (keys, ms) => { await down(keys); await sleep(Math.max(0, Math.min(ms, 5_000))); await up(keys); },
+      expect: (passed, message) => { if (assertions.length < MAX_ASSERTIONS) assertions.push({ message: message.slice(0, 300), passed }); },
+      shot: async (label) => { if (scriptShots < MAX_SCRIPT_SHOTS) { scriptShots++; await shoot(label); } },
+      log: (message) => { if (log.length < MAX_LOG) log.push(message.slice(0, 300)); },
+      done: () => { finished = true; resolveDone(); },
+    };
 
     await shoot('start');
-    const mod = await import(pathToFileURL(path.resolve(scriptPath)).href);
-    if (typeof mod.default !== 'function') throw new Error('the play script must default-export a function');
     const errorsBefore = errors.length;
+    const worker = new Worker(new URL('./play-worker.mjs', import.meta.url), {
+      workerData: { script: path.resolve(scriptPath), actions },
+      resourceLimits: { maxOldGenerationSizeMb: 256 },
+      stdout: true, // the script's console output is dropped: only the harness writes the report
+      stderr: true,
+    });
+    worker.stdout.resume();
+    worker.stderr.resume();
+    worker.on('message', async (m) => {
+      const fn = api[m && m.method];
+      try {
+        if (!fn) throw new Error(`t.${m && m.method} is not a function`);
+        worker.postMessage({ id: m.id, value: await fn(...(Array.isArray(m.args) ? m.args : [])) });
+      } catch (e) {
+        worker.postMessage({ id: m.id, error: String(e && e.message || e) });
+      }
+    });
     try {
-      await withTimeout(Promise.resolve(mod.default(t)), PLAY_MS, 'play script');
+      await withTimeout(Promise.race([done, new Promise((_, reject) => {
+        worker.on('error', reject);
+        worker.on('exit', (code) => { if (!finished) reject(new Error(`play script stopped (exit ${code})`)); });
+      })]), PLAY_MS, 'play script');
       ran = true;
     } finally {
+      await worker.terminate().catch(() => {});
       await shoot('end').catch(() => {});
     }
     // A mid-game screenshot makes a better cover than the hard checks' first frame (usually a start screen).

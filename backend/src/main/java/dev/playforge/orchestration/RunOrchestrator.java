@@ -152,7 +152,11 @@ public class RunOrchestrator {
                 runStep(ctx, step, history);
                 events.publish(runId, RunEventType.STEP_FINISHED, SYSTEM, mapOf("stepId", step.getId(), "status", StepStatus.DONE));
             } catch (CancelledException e) {
-                if (!ctx.cancel().isShutdown()) store.failStep(step.getId(), "cancelled");
+                if (!ctx.cancel().isShutdown()) {
+                    store.failStep(step.getId(), "cancelled");
+                    events.publish(runId, RunEventType.STEP_FINISHED, SYSTEM,
+                            mapOf("stepId", step.getId(), "status", StepStatus.FAILED, "error", "cancelled"));
+                }
                 throw e;
             } catch (EngineException | RuntimeException e) {
                 store.failStep(step.getId(), e.getMessage());
@@ -223,7 +227,14 @@ public class RunOrchestrator {
         boolean waived = false;
         if (ai && script != null && hard.passed()) {
             String s = script;
-            played = guarded(ctx, "ai-play", t -> playtester.play(ctx.sandbox(), s, t));
+            try {
+                played = guarded(ctx, "ai-play", t -> playtester.play(ctx.sandbox(), s, t));
+            } catch (CancelledException e) {
+                throw e;
+            } catch (EngineException | RuntimeException e) {
+                // Whatever broke around the playthrough (docker, a timeout), it says nothing about the game.
+                played = new AiPlayResult(false, e.getMessage(), List.of(), List.of(), List.of(), 0);
+            }
             int fixes = (int) history.stream().filter(h -> h.getType() == StepType.FIX && h.getTrigger() == StepTrigger.PLAYTEST).count();
             waived = !played.inconclusive() && !played.allPassed() && fixes >= props.orchestration().maxPlaytestFixes();
             aiPlay.putAll(describe(played, waived));
@@ -239,14 +250,14 @@ public class RunOrchestrator {
         if (ai) details.put("aiPlay", aiPlay);
         Map<String, Object> payload = mapOf("passed", passed, "failures", failures, "checks", hard.details().getOrDefault("checks", List.of()));
         if (ai) payload.put("aiPlay", withoutLongScript(aiPlay));
-        events.publish(runId, RunEventType.PLAYTEST_RESULT, SYSTEM, payload);
+        events.publish(runId, RunEventType.PLAYTEST_RESULT, SYSTEM, redactor.redact(payload)); // carries AI-written text
 
         if (passed) {
+            exportPreview(ctx); // before the judge: what gets published is exactly the build that passed
             if (played != null && !played.shots().isEmpty() && props.judgeEnabled()) {
                 FunScore fun = judge(ctx, played);
                 if (fun != null) details.put("funScore", fun);
             }
-            exportPreview(ctx);
         }
         store.completeStep(step.getId(), passed, write(new PlaytestReport(passed, failures, details)));
     }
@@ -273,7 +284,9 @@ public class RunOrchestrator {
             Optional<String> script = PlayScripts.extract(r.finalText());
             if (script.isEmpty()) aiPlay.put("skipped", "the player replied with no playable script");
             return script.orElse(null);
-        } catch (EngineException e) {
+        } catch (CancelledException e) {
+            throw e;
+        } catch (EngineException | RuntimeException e) {
             aiPlay.put("skipped", "player failed: " + e.getMessage());
             return null;
         } finally {
@@ -294,10 +307,12 @@ public class RunOrchestrator {
             }
             List<Map<String, Object>> shots = played.shots().stream()
                     .map(s -> Map.<String, Object>of("file", s.file(), "label", s.label())).toList();
-            events.publish(runId, RunEventType.FUN_SCORE, SYSTEM, mapOf("scores", fun.scores(), "summary", fun.summary(),
-                    "suggestions", fun.suggestions(), "shots", shots));
+            events.publish(runId, RunEventType.FUN_SCORE, SYSTEM, redactor.redact(mapOf("scores", fun.scores(), "summary", fun.summary(),
+                    "suggestions", fun.suggestions(), "shots", shots)));
             return fun;
-        } catch (EngineException e) {
+        } catch (CancelledException e) {
+            throw e;
+        } catch (EngineException | RuntimeException e) {
             events.publish(runId, RunEventType.LOG, SYSTEM, mapOf("message", "fun judge failed: " + e.getMessage()));
             return null;
         } finally {

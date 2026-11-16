@@ -180,6 +180,9 @@ class RunOrchestratorTest {
         assertThat(store.getRun(run.getId()).getStatus()).isEqualTo(RunStatus.CANCELLED);
         assertThat(scriptedReviewer.calls).isEmpty();
         assertThat(eventTypes(run).getLast()).isEqualTo(RunEventType.RUN_FINISHED);
+        // The cancelled step is closed in the event log too, so a replay never shows it as completed.
+        RunEvent stepEnd = events.history(run.getId(), 0).stream().filter(e -> e.type() == RunEventType.STEP_FINISHED).findFirst().orElseThrow();
+        assertThat(stepEnd.payload()).containsEntry("status", "FAILED").containsEntry("error", "cancelled");
     }
 
     @Test

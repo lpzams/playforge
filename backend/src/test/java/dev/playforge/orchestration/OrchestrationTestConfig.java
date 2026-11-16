@@ -65,6 +65,8 @@ public class OrchestrationTestConfig {
         public volatile boolean aiPlay;
         public final Queue<AiPlayResult> plays = new ConcurrentLinkedQueue<>();
         public final List<String> playedScripts = new CopyOnWriteArrayList<>();
+        /** When set, play() throws it (a crash outside the script, e.g. docker). */
+        public volatile RuntimeException playThrows;
 
         public void reset() {
             script.clear();
@@ -73,6 +75,7 @@ public class OrchestrationTestConfig {
             aiPlay = false;
             plays.clear();
             playedScripts.clear();
+            playThrows = null;
         }
 
         @Override
@@ -92,6 +95,7 @@ public class OrchestrationTestConfig {
         @Override
         public AiPlayResult play(Sandbox sandbox, String playScript, CancellationToken cancel) {
             playedScripts.add(playScript);
+            if (playThrows != null) throw playThrows;
             AiPlayResult r = plays.poll();
             return r != null ? r : passingPlay();
         }
