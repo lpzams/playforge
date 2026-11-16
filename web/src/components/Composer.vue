@@ -89,4 +89,5 @@ textarea::placeholder { color: var(--muted); }
 .send:disabled { background: #c4c7c5; cursor: default; }
 .spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .5); border-top-color: #fff; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 620px) { textarea { min-height: 4.8em; } }
 </style>

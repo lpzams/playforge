@@ -60,11 +60,13 @@ function follow(runId: number | null) {
   stream = null;
   events.value = [];
   if (runId == null) return;
+  // Reload the game only when a version finishes while we watch, not when an old one's history replays.
+  const live = isActive(runs.value.find((r) => r.id === runId)?.status ?? 'SUCCEEDED');
   stream = openRunStream(runId, (e) => {
     events.value.push(e);
     if (e.type === 'STEP_FINISHED' || e.type === 'RUN_FINISHED') void load();
   }, () => {
-    previewVersion.value++;
+    if (live) previewVersion.value++;
   });
 }
 
