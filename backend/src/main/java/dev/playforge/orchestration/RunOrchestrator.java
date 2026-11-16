@@ -1,6 +1,7 @@
 package dev.playforge.orchestration;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.playforge.common.CancellationToken;
 import dev.playforge.common.CancelledException;
@@ -16,6 +17,10 @@ import dev.playforge.event.RunEventPublisher;
 import dev.playforge.event.RunEventType;
 import dev.playforge.orchestration.PlanDecision.Execute;
 import dev.playforge.orchestration.PlanDecision.Finish;
+import dev.playforge.playtest.AiPlayResult;
+import dev.playforge.playtest.FunScore;
+import dev.playforge.playtest.FunScoreParser;
+import dev.playforge.playtest.PlayScripts;
 import dev.playforge.playtest.PlaytestReport;
 import dev.playforge.playtest.Playtester;
 import dev.playforge.review.ReviewParser;
@@ -38,9 +43,12 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -185,19 +193,136 @@ public class RunOrchestrator {
                         mapOf("parsed", report.parsed(), "blockers", report.blockers().size(), "issues", report.issues()));
                 store.completeStep(step.getId(), !report.hasBlockers(), write(report));
             }
-            case PLAYTEST -> {
-                PlaytestReport report = guarded(ctx, "playtest", t -> playtester.run(ctx.sandbox(), t));
-                long runId = ctx.run().getId();
-                events.publish(runId, RunEventType.PLAYTEST_RESULT, SYSTEM, mapOf("passed", report.passed(),
-                        "failures", report.failures(), "checks", report.details().getOrDefault("checks", List.of())));
-                if (report.passed()) exportPreview(ctx);
-                store.completeStep(step.getId(), report.passed(), write(report));
-            }
+            case PLAYTEST -> playtest(ctx, step, history);
             case COMMIT -> {
                 String hash = ctx.git().commitAll("run " + ctx.run().getId() + ": " + firstLine(instruction, 72));
                 store.completeStep(step.getId(), null, write(Map.of("commit", hash)));
             }
         }
+    }
+
+    /**
+     * Hard checks, then (when they pass) an AI playthrough, then (when the game passes) the fun judge.
+     * Gate: hard checks AND AI-play assertions; an inconclusive playthrough never fails a game, and once the
+     * playtest fix budget is spent the objective hard checks arbitrate alone. The fun score is report only.
+     */
+    private void playtest(Ctx ctx, Step step, List<Step> history) throws EngineException {
+        long runId = ctx.run().getId();
+        boolean ai = props.aiPlayEnabled() && playtester.supportsAiPlay();
+        Map<String, Object> aiPlay = new LinkedHashMap<>();
+        String script = null;
+        if (ai) {
+            // Before the build: the player may poke at files, and syncIn + the fresh build below undo that.
+            script = cachedPlayScript(history);
+            if (script == null) script = writePlayScript(ctx, aiPlay);
+            if (script != null) aiPlay.put("script", script);
+        }
+
+        PlaytestReport hard = guarded(ctx, "playtest", t -> playtester.run(ctx.sandbox(), t));
+        AiPlayResult played = null;
+        boolean waived = false;
+        if (ai && script != null && hard.passed()) {
+            String s = script;
+            played = guarded(ctx, "ai-play", t -> playtester.play(ctx.sandbox(), s, t));
+            int fixes = (int) history.stream().filter(h -> h.getType() == StepType.FIX && h.getTrigger() == StepTrigger.PLAYTEST).count();
+            waived = !played.inconclusive() && !played.allPassed() && fixes >= props.orchestration().maxPlaytestFixes();
+            aiPlay.putAll(describe(played, waived));
+        } else if (ai && script != null) {
+            aiPlay.put("skipped", "hard checks failed");
+        }
+
+        List<String> failures = new ArrayList<>(hard.failures());
+        if (played != null && !waived) failures.addAll(played.failures());
+        boolean passed = hard.passed() && failures.isEmpty();
+
+        Map<String, Object> details = new LinkedHashMap<>(hard.details());
+        if (ai) details.put("aiPlay", aiPlay);
+        Map<String, Object> payload = mapOf("passed", passed, "failures", failures, "checks", hard.details().getOrDefault("checks", List.of()));
+        if (ai) payload.put("aiPlay", withoutLongScript(aiPlay));
+        events.publish(runId, RunEventType.PLAYTEST_RESULT, SYSTEM, payload);
+
+        if (passed) {
+            if (played != null && !played.shots().isEmpty() && props.judgeEnabled()) {
+                FunScore fun = judge(ctx, played);
+                if (fun != null) details.put("funScore", fun);
+            }
+            exportPreview(ctx);
+        }
+        store.completeStep(step.getId(), passed, write(new PlaytestReport(passed, failures, details)));
+    }
+
+    /** The playthrough written in an earlier PLAYTEST step of this run: written once, reused after every fix. */
+    private String cachedPlayScript(List<Step> history) {
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Step s = history.get(i);
+            if (s.getType() != StepType.PLAYTEST || s.getOutputJson() == null) continue;
+            try {
+                JsonNode script = json.readTree(s.getOutputJson()).path("details").path("aiPlay").path("script");
+                if (script.isTextual() && !script.asText().isBlank()) return script.asText();
+            } catch (JsonProcessingException e) {
+                // ignore: an unreadable old output just means writing a new script
+            }
+        }
+        return null;
+    }
+
+    /** Asks the player engine for a playthrough. Any problem skips AI play (recorded), never the step. */
+    private String writePlayScript(Ctx ctx, Map<String, Object> aiPlay) {
+        try {
+            AgentResult r = callEngine(ctx, engines.player(), AgentRole.PLAYER, PromptTemplates.player(ctx.run().getInstruction()));
+            Optional<String> script = PlayScripts.extract(r.finalText());
+            if (script.isEmpty()) aiPlay.put("skipped", "the player replied with no playable script");
+            return script.orElse(null);
+        } catch (EngineException e) {
+            aiPlay.put("skipped", "player failed: " + e.getMessage());
+            return null;
+        } finally {
+            ctx.sandbox().syncIn(ctx.hostDir()); // the player must not change the game
+        }
+    }
+
+    /** Scores the playthrough's screenshots. Report only: failures are logged, never fail the step. */
+    private FunScore judge(Ctx ctx, AiPlayResult played) {
+        long runId = ctx.run().getId();
+        try {
+            AgentResult r = callEngine(ctx, engines.judge(), AgentRole.JUDGE,
+                    PromptTemplates.judge(ctx.run().getInstruction(), played.shots(), played.assertions(), played.log()));
+            FunScore fun = FunScoreParser.parse(r.finalText());
+            if (!fun.parsed()) {
+                events.publish(runId, RunEventType.LOG, SYSTEM, mapOf("message", "fun score unreadable: " + truncate(r.finalText(), 500)));
+                return null;
+            }
+            List<Map<String, Object>> shots = played.shots().stream()
+                    .map(s -> Map.<String, Object>of("file", s.file(), "label", s.label())).toList();
+            events.publish(runId, RunEventType.FUN_SCORE, SYSTEM, mapOf("scores", fun.scores(), "summary", fun.summary(),
+                    "suggestions", fun.suggestions(), "shots", shots));
+            return fun;
+        } catch (EngineException e) {
+            events.publish(runId, RunEventType.LOG, SYSTEM, mapOf("message", "fun judge failed: " + e.getMessage()));
+            return null;
+        } finally {
+            ctx.sandbox().syncIn(ctx.hostDir()); // the judge must not change the game (dist is kept)
+        }
+    }
+
+    private static Map<String, Object> describe(AiPlayResult r, boolean waived) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("ran", r.ran());
+        m.put("inconclusive", r.inconclusive());
+        m.put("error", r.error());
+        m.put("assertions", r.assertions().stream().map(a -> Map.<String, Object>of("message", a.message(), "passed", a.passed())).toList());
+        m.put("shots", r.shots().stream().map(s -> Map.<String, Object>of("file", s.file(), "label", s.label())).toList());
+        m.put("log", r.log());
+        m.put("waived", waived);
+        m.put("durationMs", r.durationMs());
+        return m;
+    }
+
+    /** Events carry the script for the replay, capped so one event stays small. */
+    private static Map<String, Object> withoutLongScript(Map<String, Object> aiPlay) {
+        Map<String, Object> m = new LinkedHashMap<>(aiPlay);
+        if (m.get("script") instanceof String s && s.length() > 6000) m.put("script", s.substring(0, 6000) + "\n// …");
+        return m;
     }
 
     /** Publishes the build for /preview. Best effort: a failed export is logged, never fails the run. */

@@ -44,6 +44,11 @@ public class ScriptedEngine implements AgentEngine {
         calls.clear();
     }
 
+    public static final String DEFAULT_PLAY_SCRIPT = "export default async function play(t) { t.expect(true, 'ok'); }";
+    public static final String DEFAULT_PLAY_REPLY = "```js\n" + DEFAULT_PLAY_SCRIPT + "\n```";
+    public static final String DEFAULT_JUDGE_REPLY =
+            "{\"scores\":{\"fit\":4,\"difficulty\":3,\"visuals\":3,\"feedback\":4},\"summary\":\"能玩\",\"suggestions\":[\"加音效\"]}";
+
     public static AgentResult text(String finalText) {
         return new AgentResult(finalText, 1, 1, Duration.ZERO);
     }
@@ -64,6 +69,8 @@ public class ScriptedEngine implements AgentEngine {
         Behavior b = script.poll();
         try {
             if (b != null) return b.run(req, sandbox, sink, cancel);
+            if (role == AgentRole.PLAYER) return text(DEFAULT_PLAY_REPLY);
+            if (role == AgentRole.JUDGE) return text(DEFAULT_JUDGE_REPLY);
             if (role == AgentRole.CODER) {
                 Files.writeString(sandbox.workdir().resolve("game-" + calls.size() + ".js"), "// " + calls.size());
                 sink.emit(RunEventType.FILE_CHANGED, Map.of("path", "game-" + calls.size() + ".js"));

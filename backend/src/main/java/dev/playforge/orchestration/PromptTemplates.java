@@ -1,11 +1,12 @@
 package dev.playforge.orchestration;
 
+import dev.playforge.playtest.AiPlayResult;
 import dev.playforge.review.ReviewIssue;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
-/** Prompts sent to the coder and reviewer agents. User text is embedded verbatim. */
+/** Prompts sent to the coder, reviewer, player and judge agents. User text is embedded verbatim. */
 public final class PromptTemplates {
 
     private PromptTemplates() {
@@ -107,6 +108,83 @@ public final class PromptTemplates {
                 BLOCKER = the game is broken, the request is not fulfilled, or the probe API is missing/wrong.
                 SUGGESTION = nice-to-have improvement. Return {"issues":[]} when there is nothing to report.
                 """.formatted(instruction, diff.isBlank() ? "(no changes)" : truncateDiff(diff));
+    }
+
+    /** The AI player: reads the game and writes a playthrough that the harness runs and records. */
+    public static String player(String instruction) {
+        return """
+                You are a QA player for a small browser game in the current directory. Do NOT modify any files.
+
+                Player request (verbatim):
+                <<<
+                %s
+                >>>
+
+                First read the game's source (start with src/) to learn the probe state (window.__GAME_PROBE__:
+                status, score, entities), the declared actions and their keys, and how the game reacts to them.
+
+                Then write ONE JavaScript module that plays a real round of this game the way a player would and
+                checks the acceptance criteria the request implies (for example: the controls move the player,
+                scoring works, losing ends the game, restart starts a new round). It runs in Node, not in the page,
+                with this API:
+
+                export default async function play(t) {
+                  // t.actions                    -> [{ name, keys }]
+                  // await t.state()              -> { status, score, entities: [{ id, type, x, y }] }
+                  // await t.start(); await t.restart();
+                  // await t.press(keys, ms)      hold KeyboardEvent.code keys ('ArrowLeft' or ['Space']), default 150 ms
+                  // await t.down(keys); await t.up(keys); await t.wait(ms)
+                  // await t.waitFor(state => boolean, ms)  -> true if it became true within ms (default 3000)
+                  // t.expect(condition, message) records an assertion; the message says what SHOULD happen
+                  // await t.shot(label)          screenshot (at most 4): take them at interesting moments
+                  // t.log(message)
+                }
+
+                Rules:
+                - Assert only what the request asks for or what any game of this kind must do. Prefer
+                  t.waitFor with generous timeouts over fixed waits; never assert exact timings or positions.
+                - Write 3 to 8 assertions with plain English messages.
+                - Finish within 40 seconds. Do not import anything and do not touch the DOM.
+
+                Reply with ONLY the module in a ```js code block.
+                """.formatted(instruction);
+    }
+
+    /** The judge: scores how fun the game is from the playthrough's screenshots. Report only. */
+    public static String judge(String instruction, List<AiPlayResult.Shot> shots, List<AiPlayResult.Assertion> assertions,
+                               List<String> log) {
+        String shotList = shots.stream().map(s -> "- /workspace/dist/" + s.file() + " (" + s.label() + ")")
+                .collect(Collectors.joining("\n"));
+        String checks = assertions.isEmpty() ? "- (none)" : assertions.stream()
+                .map(a -> "- [" + (a.passed() ? "passed" : "failed") + "] " + a.message()).collect(Collectors.joining("\n"));
+        String notes = log.isEmpty() ? "- (none)" : log.stream().map(l -> "- " + l).collect(Collectors.joining("\n"));
+        return """
+                You are judging how fun a small browser game is, from screenshots of an automated playthrough.
+                Do NOT modify any files.
+
+                Player request (verbatim):
+                <<<
+                %s
+                >>>
+
+                Screenshots (open each one with your Read tool, in this order):
+                %s
+
+                What the automated player checked:
+                %s
+
+                Playthrough notes:
+                %s
+
+                Score each dimension from 1 (poor) to 5 (great):
+                - fit: does the game match the request?
+                - difficulty: is the challenge reasonable (neither trivial nor impossible)?
+                - visuals: is it readable and pleasant to look at?
+                - feedback: does the game clearly react to the player (score, effects, game-over screen)?
+
+                Reply with ONLY this JSON (no other text); write summary and suggestions in Simplified Chinese:
+                {"scores":{"fit":3,"difficulty":3,"visuals":3,"feedback":3},"summary":"一句话评价","suggestions":["至多 3 条具体改进建议"]}
+                """.formatted(instruction, shotList, checks, notes);
     }
 
     /** Keeps review prompts within model context: diffs longer than this are cut. */
