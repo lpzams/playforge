@@ -55,7 +55,7 @@ const suggestions = (e: RunEvent) => (Array.isArray(p(e, 'suggestions')) ? (p(e,
     <div v-if="hidden > 0" class="muted folded">已省略 {{ hidden }} 条更早的事件</div>
     <template v-for="e in visible" :key="e.seq">
       <div v-if="e.type === 'STEP_STARTED'" class="item step" data-test="event">
-        <el-divider content-position="left">{{ stepTitle(e) }}</el-divider>
+        <div class="step-title">{{ stepTitle(e) }}</div>
       </div>
 
       <div v-else-if="e.type === 'AGENT_TEXT'" class="item bubble" data-test="event">
@@ -134,15 +134,10 @@ const suggestions = (e: RunEvent) => (Array.isArray(p(e, 'suggestions')) ? (p(e,
       </div>
 
       <div v-else-if="e.type === 'RUN_FINISHED'" class="item" data-test="event">
-        <el-alert
-          data-test="run-finished"
-          :type="(RESULT[str(p(e, 'status'))] ?? { type: 'info' }).type"
-          :title="(RESULT[str(p(e, 'status'))] ?? { text: str(p(e, 'status')) }).text"
-          :closable="false"
-          show-icon
-        >
-          <span v-if="p(e, 'reason')" class="plain-text">{{ str(p(e, 'reason')) }}</span>
-        </el-alert>
+        <div data-test="run-finished" class="finished" :class="(RESULT[str(p(e, 'status'))] ?? { type: 'info' }).type">
+          {{ (RESULT[str(p(e, 'status'))] ?? { text: str(p(e, 'status')) }).text }}
+          <span v-if="p(e, 'reason')" class="plain-text">：{{ str(p(e, 'reason')) }}</span>
+        </div>
       </div>
 
       <div v-else class="item line muted plain-text" data-test="event">{{ str(p(e, 'message') ?? e.type) }}</div>
@@ -153,15 +148,18 @@ const suggestions = (e: RunEvent) => (Array.isArray(p(e, 'suggestions')) ? (p(e,
 <style scoped>
 .feed { display: flex; flex-direction: column; gap: 6px; }
 .folded { text-align: center; font-size: 12px; padding: 4px; }
-.step :deep(.el-divider) { margin: 14px 0 6px; }
-.bubble { background: #fff; border: 1px solid var(--pf-border); border-radius: 6px; padding: 8px 12px; }
-.who { font-size: 12px; color: var(--pf-muted); margin-bottom: 2px; }
+.step-title { margin: 14px 0 4px; font-size: 13px; font-weight: 500; color: var(--text); }
+.bubble { background: #fff; border-radius: 12px; padding: 8px 12px; }
+.who { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
 .line { display: flex; gap: 8px; align-items: baseline; font-size: 13px; padding: 0 2px; }
 .tool { font-weight: 600; white-space: nowrap; }
 .clip { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.block { background: #fff; border: 1px solid var(--pf-border); border-radius: 6px; padding: 10px 12px; }
+.block { background: #fff; border-radius: 12px; padding: 10px 12px; }
 .block-title { font-weight: 600; margin-bottom: 6px; }
 .small { font-size: 12px; }
-.ok { color: var(--el-color-success); }
-.err { color: var(--el-color-danger); }
+.ok { color: var(--ok); }
+.err { color: var(--danger); }
+.finished { padding: 8px 12px; border-radius: 12px; background: #fff; }
+.finished.success { color: var(--ok); }
+.finished.error { color: var(--danger); }
 </style>

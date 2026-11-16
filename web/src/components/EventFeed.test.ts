@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
-import ElementPlus from 'element-plus';
 import EventFeed from './EventFeed.vue';
 import type { RunEvent } from '../api/types';
 
@@ -10,7 +9,7 @@ function ev(type: string, payload: Record<string, unknown>, source = 'system'): 
 }
 
 function render(events: RunEvent[]) {
-  return mount(EventFeed, { props: { events }, global: { plugins: [ElementPlus] }, attachTo: document.body });
+  return mount(EventFeed, { props: { events }, attachTo: document.body });
 }
 
 describe('EventFeed', () => {

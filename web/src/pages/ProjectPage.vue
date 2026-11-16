@@ -2,12 +2,11 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { api, isActive } from '../api/client';
 import { openRunStream, type RunStream } from '../api/events';
-import type { ProjectView, RunEvent } from '../api/types';
-import RunTimeline from '../components/RunTimeline.vue';
-import EventFeed from '../components/EventFeed.vue';
-import PreviewPane from '../components/PreviewPane.vue';
-import FollowUpBox from '../components/FollowUpBox.vue';
-import StatusTag from '../components/StatusTag.vue';
+import type { ProjectView, RunEvent, RunView } from '../api/types';
+import { duration } from '../story/story';
+import Composer from '../components/Composer.vue';
+import GameStage from '../components/GameStage.vue';
+import RunStory from '../components/RunStory.vue';
 
 const props = defineProps<{ id: string }>();
 
@@ -17,25 +16,45 @@ const selectedRunId = ref<number | null>(null);
 const events = ref<RunEvent[]>([]);
 const previewVersion = ref(0);
 const submitting = ref(false);
+const stage = ref<InstanceType<typeof GameStage> | null>(null);
+const composer = ref<InstanceType<typeof Composer> | null>(null);
 let stream: RunStream | null = null;
 
-const latest = computed(() => project.value?.runs[project.value.runs.length - 1] ?? null);
+const runs = computed(() => project.value?.runs ?? []);
+const latest = computed(() => runs.value[runs.value.length - 1] ?? null);
 const active = computed(() => !!latest.value && isActive(latest.value.status));
+const selected = computed(() => runs.value.find((r) => r.id === selectedRunId.value) ?? null);
+const name = computed(() => (project.value?.title ?? '').split(/[：:]/)[0].replace(/^一个/, ''));
+/** The screenshots on disk belong to the build in /preview: the last successful version. */
+const previewRunId = computed(() => [...runs.value].reverse().find((r) => r.status === 'SUCCEEDED')?.id ?? null);
+
+const versionLabel = (r: RunView) => `第 ${runs.value.indexOf(r) + 1} 版`;
+const took = (r: RunView) => (r.startedAt && r.finishedAt ? duration(Date.parse(r.finishedAt) - Date.parse(r.startedAt)) : '');
+
+const meta = computed(() => {
+  const r = latest.value;
+  if (!r) return '';
+  const parts = [`共 ${runs.value.length} 版`];
+  if (isActive(r.status)) parts.push(`正在生成${versionLabel(r)}`);
+  else if (r.status === 'FAILED') parts.push(`${versionLabel(r)}生成失败`);
+  else if (r.status === 'CANCELLED') parts.push(`${versionLabel(r)}已取消`);
+  else if (took(r)) parts.push(`${versionLabel(r)}用时 ${took(r)}`);
+  return parts.join(' · ');
+});
 
 async function load() {
   try {
     project.value = await api.getProject(props.id);
     error.value = '';
-    const runs = project.value.runs;
-    if (selectedRunId.value == null || !runs.some((r) => r.id === selectedRunId.value)) {
-      selectedRunId.value = runs.length ? runs[runs.length - 1].id : null;
+    if (selectedRunId.value == null || !runs.value.some((r) => r.id === selectedRunId.value)) {
+      selectedRunId.value = latest.value?.id ?? null;
     }
   } catch (e) {
     error.value = (e as Error).message;
   }
 }
 
-/** Shows one run: the stream replays its history, then follows it live until RUN_FINISHED. */
+/** Shows one version: the stream replays its history, then follows it live until RUN_FINISHED. */
 function follow(runId: number | null) {
   stream?.close();
   stream = null;
@@ -55,6 +74,7 @@ async function followUp(text: string) {
   submitting.value = true;
   try {
     const created = await api.createRun(props.id, text);
+    composer.value?.clear();
     await load();
     selectedRunId.value = created.runId;
   } catch (e) {
@@ -80,59 +100,87 @@ onUnmounted(() => stream?.close());
 
 <template>
   <div v-if="project" class="project">
-    <header class="top panel">
-      <router-link to="/" class="back">← 我的游戏</router-link>
-      <h2 class="plain-text">{{ project.title.split(/[：:]/)[0] }}</h2>
-      <StatusTag v-if="latest" :status="latest.status" />
-      <span class="muted">共 {{ project.runs.length }} 版</span>
-      <a v-if="project.previewAvailable" class="open" :href="`/preview/${project.id}/`" target="_blank" rel="noopener">新窗口试玩 ↗</a>
+    <GameStage ref="stage" :project-id="project.id" :available="project.previewAvailable" :version="previewVersion" :title="name">
+      <p v-if="active" class="muted">正在生成，完成后会自动出现</p>
+    </GameStage>
+
+    <header class="game-head">
+      <div class="title-block">
+        <h1>{{ name }}</h1>
+        <div class="meta">{{ meta }}</div>
+      </div>
+      <div v-if="project.previewAvailable" class="actions">
+        <button type="button" class="pill plain" @click="stage?.reload()">重新开始</button>
+        <button type="button" class="pill plain" @click="stage?.fullscreen()">全屏</button>
+        <a class="pill tonal" :href="`/preview/${project.id}/`" target="_blank" rel="noopener">新窗口</a>
+      </div>
     </header>
-    <el-alert v-if="error" :title="error" type="error" show-icon class="alert" @close="error = ''" />
 
-    <div class="columns">
-      <aside class="left panel">
-        <div class="col-title">生成记录</div>
-        <RunTimeline :runs="project.runs" :selected-id="selectedRunId" @select="selectedRunId = $event" />
-      </aside>
+    <p v-if="error" class="error-text">{{ error }}</p>
 
-      <section class="middle panel">
-        <div class="col-title">生成过程</div>
-        <div class="feed-scroll">
-          <EventFeed :events="events" />
-          <div v-if="events.length === 0" class="muted">等待事件……</div>
+    <section class="follow">
+      <Composer
+        ref="composer"
+        test-id="follow-up"
+        :disabled="active"
+        :submitting="submitting"
+        :placeholder="active ? '正在生成中，完成后可以继续修改' : '继续修改，例如：陨石再快一点、加一个最高分记录（Ctrl + Enter 发送）'"
+        @submit="followUp"
+      >
+        <template v-if="active" #right>
+          <span class="live">正在生成{{ latest ? versionLabel(latest) : '' }}…</span>
+          <button type="button" class="pill plain" data-test="cancel" @click="cancel">取消</button>
+        </template>
+      </Composer>
+    </section>
+
+    <section class="story">
+      <div class="story-head">
+        <h2>它是怎么做出来的</h2>
+        <div v-if="runs.length > 1" class="versions">
+          <button
+            v-for="r in runs"
+            :key="r.id"
+            type="button"
+            class="chip"
+            data-test="run"
+            :aria-pressed="r.id === selectedRunId"
+            @click="selectedRunId = r.id"
+          >
+            {{ versionLabel(r) }}<span v-if="isActive(r.status)">（生成中）</span><span v-else-if="r.status === 'FAILED'">（失败）</span><span v-else-if="r.status === 'CANCELLED'">（已取消）</span>
+          </button>
         </div>
-        <FollowUpBox :active="active" :submitting="submitting" @submit="followUp" @cancel="cancel" />
-      </section>
-
-      <section class="right panel">
-        <PreviewPane :project-id="project.id" :available="project.previewAvailable" :version="previewVersion" />
-        <details class="prompt">
-          <summary>最初的需求</summary>
-          <div class="plain-text">{{ project.prompt }}</div>
-        </details>
-      </section>
-    </div>
+      </div>
+      <RunStory
+        v-if="selected"
+        :events="events"
+        :instruction="selected.instruction"
+        :label="runs.indexOf(selected) === 0 ? '一句话需求' : `修改需求（${versionLabel(selected)}）`"
+        :preview-base="selected.id === previewRunId ? `/preview/${project.id}/` : null"
+      />
+    </section>
   </div>
-  <el-alert v-else-if="error" :title="error" type="error" show-icon :closable="false" />
-  <el-skeleton v-else :rows="6" animated />
+  <p v-else-if="error" class="error-text page-error">{{ error }}</p>
+  <p v-else class="muted page-error">加载中…</p>
 </template>
 
 <style scoped>
-.top { display: flex; align-items: center; gap: 14px; padding: 12px 18px; margin-bottom: 16px; }
-.top h2 { margin: 0; font-size: 18px; color: var(--pf-primary); }
-.back { color: var(--pf-muted); text-decoration: none; font-size: 13px; white-space: nowrap; }
-.open { margin-left: auto; color: var(--pf-primary); text-decoration: none; font-size: 13px; }
-.alert { margin-bottom: 12px; }
-.columns { display: grid; grid-template-columns: 270px minmax(0, 1fr) 480px; gap: 16px; align-items: start; }
-.panel.left, .panel.middle, .panel.right { padding: 14px; }
-.left { background: var(--pf-bg); }
-.col-title { font-weight: 600; color: var(--pf-text); margin-bottom: 10px; }
-.middle { display: flex; flex-direction: column; gap: 10px; }
-.feed-scroll { max-height: calc(100vh - 260px); overflow-y: auto; padding-right: 4px; }
-.prompt { margin-top: 12px; font-size: 13px; }
-.prompt summary { cursor: pointer; color: var(--pf-muted); }
-@media (max-width: 1200px) {
-  .columns { grid-template-columns: 220px minmax(0, 1fr); }
-  .right { grid-column: 1 / -1; }
+.project { max-width: 1400px; margin: 0 auto; padding: 4px 24px 64px; }
+.game-head { display: flex; align-items: center; gap: 24px; margin: 18px auto 0; max-width: 1100px; }
+.title-block { min-width: 0; margin-right: auto; }
+.game-head h1 { font-size: 28px; line-height: 1.25; margin: 0 0 4px; letter-spacing: -.3px; }
+.meta { font-size: 13.5px; color: var(--muted); }
+.actions { display: flex; gap: 8px; flex-shrink: 0; }
+.follow, .story, .project > .error-text { max-width: 1100px; margin-left: auto; margin-right: auto; }
+.follow { margin-top: 20px; }
+.live { color: var(--accent); font-size: 14px; white-space: nowrap; }
+.story { margin-top: 40px; }
+.story-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.story-head h2 { font-size: 20px; margin: 0; }
+.versions { display: flex; gap: 6px; flex-wrap: wrap; }
+.page-error { max-width: 1100px; margin: 48px auto; padding: 0 24px; }
+@media (max-width: 760px) {
+  .game-head { flex-direction: column; align-items: stretch; gap: 12px; }
+  .project { padding: 4px 16px 48px; }
 }
 </style>

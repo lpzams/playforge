@@ -50,14 +50,31 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ProjectPage', () => {
-  it('subscribes to the active run and shows its events', async () => {
+  it('subscribes to the active run and tells it as a story, raw log on demand', async () => {
     stubApi([['GET', /\/api\/projects\/abcdefghijkl$/, () => json(project([run(5, 'RUNNING')]))]]);
     const w = await mountPage();
 
     expect(lastSource().url).toBe('/api/runs/5/events');
-    lastSource().push({ seq: 1, type: 'AGENT_TEXT', source: 'claude', payload: { text: '我先写游戏循环' } });
+    lastSource().push({ seq: 1, type: 'STEP_STARTED', payload: { type: 'CODE', trigger: 'NONE', round: 0 } });
+    lastSource().push({ seq: 2, type: 'AGENT_TEXT', source: 'claude', payload: { text: '我先写游戏循环' } });
     await flushPromises();
+    expect(w.find('[data-test="story-entry"]').text()).toContain('正在写代码');
+    expect(w.text()).not.toContain('我先写游戏循环');
+
+    await w.find('[data-test="toggle-log"]').trigger('click');
     expect(w.text()).toContain('我先写游戏循环');
+  });
+
+  it('switches between versions', async () => {
+    stubApi([['GET', /\/api\/projects\/abcdefghijkl$/, () => json(project([run(5, 'SUCCEEDED'), run(6, 'FAILED', '加个最高分')], true))]]);
+    const w = await mountPage();
+
+    const versions = w.findAll('[data-test="run"]');
+    expect(versions.map((v) => v.text())).toEqual(['第 1 版', '第 2 版（失败）']);
+    expect(lastSource().url).toBe('/api/runs/6/events');
+    await versions[0].trigger('click');
+    await flushPromises();
+    expect(lastSource().url).toBe('/api/runs/5/events');
   });
 
   it('follow-up is disabled while a run is active, and cancel works', async () => {

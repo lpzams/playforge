@@ -1,6 +1,5 @@
 import { vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import ElementPlus from 'element-plus';
 
 /** A real in-memory router (routes are stubs) so components can navigate in tests. */
 export function testRouter() {
@@ -13,7 +12,7 @@ export function testRouter() {
 }
 
 export function globalPlugins(router = testRouter()) {
-  return { plugins: [ElementPlus, router] };
+  return { plugins: [router] };
 }
 
 type Handler = (url: string, init: RequestInit) => Response | Promise<Response>;

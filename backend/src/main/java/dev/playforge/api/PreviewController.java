@@ -2,6 +2,7 @@ package dev.playforge.api;
 
 import dev.playforge.config.PlayforgeProperties;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
@@ -13,12 +14,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -66,6 +69,14 @@ public class PreviewController {
 
         MediaType type = MediaTypeFactory.getMediaType(file.getFileName().toString())
                 .orElse(MediaType.APPLICATION_OCTET_STREAM);
+        Resource body = new FileSystemResource(file);
+        if (rel.equals("index.html")) {
+            try {
+                body = new ByteArrayResource(withHiDpiShim(Files.readString(file, StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                return ResponseEntity.notFound().build();
+            }
+        }
         return ResponseEntity.ok()
                 .contentType(type)
                 .cacheControl(CacheControl.noStore())
@@ -74,6 +85,27 @@ public class PreviewController {
                 .header("Content-Security-Policy", PREVIEW_CSP)
                 .header("Access-Control-Allow-Origin", "*")
                 .header("X-Content-Type-Options", "nosniff")
-                .body(new FileSystemResource(file));
+                .body(body);
+    }
+
+    /** Served by the web UI (web/public/hidpi.js); a classic script, so the opaque origin needs no CORS for it. */
+    static final String HI_DPI_SHIM = "<script defer src=\"/hidpi.js\"></script>";
+    private static final Pattern MODULE_SCRIPT = Pattern.compile("<script[^>]*type=[\"']module[\"']", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HEAD_END = Pattern.compile("</head>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DOCTYPE = Pattern.compile("^\\s*<!doctype[^>]*>", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Loads the hi-DPI shim before the game: generated games draw on a small fixed canvas, and the shim sizes it to the
+     * frame and renders it at full resolution (same file as the showcase's). Deferred scripts run in document order,
+     * so placed before the module it runs first. The playtest harness serves builds itself and never sees this.
+     */
+    static String withHiDpiShim(String html) {
+        Matcher m = MODULE_SCRIPT.matcher(html);
+        if (m.find()) return html.substring(0, m.start()) + HI_DPI_SHIM + "\n    " + html.substring(m.start());
+        m = HEAD_END.matcher(html);
+        if (m.find()) return html.substring(0, m.start()) + HI_DPI_SHIM + html.substring(m.start());
+        m = DOCTYPE.matcher(html);
+        if (m.find()) return html.substring(0, m.end()) + HI_DPI_SHIM + html.substring(m.end());
+        return HI_DPI_SHIM + html;
     }
 }

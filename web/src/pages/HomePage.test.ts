@@ -35,8 +35,7 @@ describe('HomePage', () => {
     expect(cards[0].text()).toContain('新游戏');
     expect(cards[0].text()).toContain('生成中');
     expect(cards[1].text()).toContain('旧游戏');
-    expect(cards[1].text()).toContain('已完成');
-    expect(cards[1].text()).toContain('可试玩');
+    expect(cards[1].text()).toContain('可以玩');
   });
 
   it('search filters the game list by title or prompt', async () => {

@@ -33,8 +33,8 @@ function label(name: string) {
 .checks { list-style: none; margin: 0; padding: 0; }
 li { display: flex; gap: 8px; padding: 2px 0; align-items: baseline; }
 .mark { width: 14px; font-weight: 700; }
-.ok .mark { color: var(--el-color-success); }
-.bad .mark, .bad .name { color: var(--el-color-danger); }
+.ok .mark { color: var(--ok); }
+.bad .mark, .bad .name { color: var(--danger); }
 .name { min-width: 84px; }
-.detail { color: var(--pf-muted); font-size: 12px; }
+.detail { color: var(--muted); font-size: 12px; }
 </style>

@@ -15,9 +15,9 @@ function where(i: ReviewIssue) {
     <div v-else-if="issues.length === 0" class="pass">审查通过，没有发现问题</div>
     <ul v-else class="issues">
       <li v-for="(i, k) in issues" :key="k" data-test="review-issue" :class="i.severity === 'BLOCKER' ? 'blocker' : 'suggestion'">
-        <el-tag size="small" :type="i.severity === 'BLOCKER' ? 'danger' : 'info'" effect="light">
+        <span class="sev" :class="{ blocker: i.severity === 'BLOCKER' }">
           {{ i.severity === 'BLOCKER' ? '阻塞' : '建议' }}
-        </el-tag>
+        </span>
         <code v-if="where(i)" class="where">{{ where(i) }}</code>
         <span class="plain-text">{{ i.message }}</span>
       </li>
@@ -28,6 +28,8 @@ function where(i: ReviewIssue) {
 <style scoped>
 .issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 li { display: flex; gap: 8px; align-items: baseline; }
-.where { font-size: 12px; color: var(--pf-muted); white-space: nowrap; }
-.pass { color: var(--el-color-success); }
+.where { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.pass { color: var(--ok); }
+.sev { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.sev.blocker { color: var(--danger); }
 </style>
