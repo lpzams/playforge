@@ -1,4 +1,5 @@
 workspaces/
+workspaces-attachments/
 backend/data/
 backend/target/
 .idea/
