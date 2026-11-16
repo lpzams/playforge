@@ -24,6 +24,8 @@ export interface RunView {
   startedAt: string | null;
   finishedAt: string | null;
   steps: StepView[];
+  /** Areas the player marked on a screenshot for this request (image at /api/runs/{id}/markup.png). */
+  markup?: { canvas: { width: number; height: number }; boxes: { x: number; y: number; w: number; h: number }[] } | null;
 }
 
 export interface ProjectView {

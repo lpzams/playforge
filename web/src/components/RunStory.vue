@@ -6,7 +6,11 @@ import type { RunEvent } from '../api/types';
 import { buildStory } from '../story/story';
 import EventFeed from './EventFeed.vue';
 
-const props = defineProps<{ events: RunEvent[]; previewBase: string | null; instruction: string; label: string; followUp?: boolean }>();
+const props = defineProps<{
+  events: RunEvent[]; previewBase: string | null; instruction: string; label: string; followUp?: boolean;
+  /** The screenshot the player marked for this request, if any. */
+  markupImage?: string | null;
+}>();
 
 const story = computed(() => buildStory(props.events, { previewBase: props.previewBase, followUp: props.followUp }));
 const showNote = ref(false);
@@ -20,6 +24,9 @@ const showLog = ref(false);
       <div>
         <div class="entry-head"><span class="name">{{ label }}</span></div>
         <p class="entry-text plain-text">{{ instruction }}</p>
+        <a v-if="markupImage" class="marked" :href="markupImage" target="_blank" rel="noopener" data-test="marked-shot">
+          <img :src="markupImage" alt="圈出要改的地方" loading="lazy" />
+        </a>
       </div>
     </li>
 
@@ -82,6 +89,8 @@ const showLog = ref(false);
 </template>
 
 <style scoped>
+.marked { display: inline-block; margin-top: 10px; }
+.marked img { display: block; max-width: min(100%, 360px); max-height: 240px; border-radius: 12px; background: #111; }
 .more { height: 30px; padding: 0 12px 0 0; margin-top: 4px; }
 .log { margin-top: 4px; padding-left: 44px; }
 .log-body { margin-top: 8px; padding: 14px 16px; border-radius: var(--radius); background: var(--surface); max-height: 520px; overflow-y: auto; }

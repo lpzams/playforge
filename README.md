@@ -1,6 +1,6 @@
 # PlayForge：一句话生成真的能玩的小游戏
 
-输入一句话，比如"一个躲陨石的太空飞船游戏"，PlayForge 会让 **Claude 写代码、Codex 审查、AI 试玩员在真实浏览器里亲自玩一局**。发现问题就自动打回修复，最终得到一个验证过、能直接玩的 H5 小游戏；最后再由 AI 评委看截图给出好玩度建议。
+输入一句话，比如"一个躲陨石的太空飞船游戏"，PlayForge 会让 **Claude 写代码、Codex 审查、AI 试玩员在真实浏览器里亲自玩一局**。发现问题就自动打回修复，最终得到一个验证过、能直接玩的 H5 小游戏；最后再由 AI 评委看截图给出好玩度建议。之后可以继续用文字修改，也可以直接在游戏画面上框出要改的地方。
 
 **👉 在线作品展：https://lpzams.github.io/playforge/**（可以直接玩，也能展开看每个游戏是怎么一步步生成的）
 
@@ -58,6 +58,7 @@ flowchart TB
 | 沙箱 | CLI 跑在 Docker 预热池里，每个容器只用一次就销毁。代码用 tar 流同步，拒绝 `..`、`.git` 的大小写变体、符号链接和 Windows 非法文件名。被强制关闭后残留的容器，下次启动时自动清理 |
 | 试玩的可信度 | 先在不按键的情况下观察一段时间作为对照，按住按键期间持续采样，所以有东西自己在动时不会误判；能识别"只改变方向"的操作（贪吃蛇），某个键在当前状态下合理地无效时，先换个状态再试；只检测画布区域，不会被页面样式骗过。另有 15 个"故意出问题/容易误判的游戏"样本做回归 |
 | AI 试玩员 | 确定性部分（脚本断言）卡门，不确定部分（评委打分）只报告：用工程手段约束大模型的不确定性。试玩脚本每次 Run 只写一次、修复后复用，评委只给最终通过的版本打分，控制额度消耗 |
+| 圈选修改（多模态） | 在游戏画面上框出要改的地方再写意见。游戏在不透明源的沙箱里，截图通过注入的"桥"脚本用带随机数的 postMessage 取得；框选换算成游戏代码的画布像素坐标，连同带编号红框的截图一起交给 Claude |
 | 安全 | 凭证只以环境变量名传入容器，事件流统一脱敏。预览运行在 CSP 沙箱里（不透明源），生成的游戏无法调用平台 API。前端把 AI 输出一律当纯文本渲染 |
 | 实时 | SSE 推送全过程，支持 `Last-Event-ID` 断线续传；同一份事件日志也是作品展"生成过程"的数据来源 |
 
@@ -73,7 +74,7 @@ flowchart TB
 
 ```
 backend/    Spring Boot 后端：编排、引擎、沙箱、试玩、API
-web/        Vue 3 本地平台（新建、实时过程、预览、继续修改）
+web/        Vue 3 本地平台（新建、实时过程、预览、继续修改、圈选修改）
 sandbox/    沙箱镜像：Dockerfile、游戏模板 + 探针 SDK、试玩脚本 run.mjs、故障样本
 showcase/   作品展：导出脚本 + 静态站点（GitHub Pages）
 docs/       需求决策、设计文档、分阶段实施计划、运行手册
@@ -93,5 +94,5 @@ docs/       需求决策、设计文档、分阶段实施计划、运行手册
 
 - [需求与关键决策](docs/decisions.md)：为什么选这个题目，每个技术选择的取舍
 - [方案设计](docs/superpowers/specs/2026-11-08-playforge-design.md)
-- 分阶段实施计划：[P1 编排核心](docs/superpowers/plans/2026-11-08-p1-orchestration-core.md) · [P2 真实引擎 + 沙箱](docs/superpowers/plans/2026-11-09-p2-real-engines-sandbox.md) · [P3 AI 试玩](docs/superpowers/plans/2026-11-10-p3-ai-playtest.md) · [P4 前端](docs/superpowers/plans/2026-11-15-p4-web-frontend.md) · [P5a AI 试玩员](docs/superpowers/plans/2026-11-16-p5a-ai-playtester.md) · [P5b 本地平台改版](docs/superpowers/plans/2026-11-16-p5b-local-platform.md)
+- 分阶段实施计划：[P1 编排核心](docs/superpowers/plans/2026-11-08-p1-orchestration-core.md) · [P2 真实引擎 + 沙箱](docs/superpowers/plans/2026-11-09-p2-real-engines-sandbox.md) · [P3 AI 试玩](docs/superpowers/plans/2026-11-10-p3-ai-playtest.md) · [P4 前端](docs/superpowers/plans/2026-11-15-p4-web-frontend.md) · [P5a AI 试玩员](docs/superpowers/plans/2026-11-16-p5a-ai-playtester.md) · [P5b 本地平台改版](docs/superpowers/plans/2026-11-16-p5b-local-platform.md) · [P5c 圈选修改](docs/superpowers/plans/2026-11-16-p5c-markup-edits.md)
 - [运行手册与验收记录](docs/runbook.md)

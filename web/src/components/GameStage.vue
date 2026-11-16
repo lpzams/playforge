@@ -2,6 +2,7 @@
 // The game, as large as the page allows. The stage takes the canvas aspect ratio (cover.json, written by the
 // playtest) and the iframe fills it; the preview's index.html loads the hi-DPI shim, so the game renders sharply.
 import { computed, ref, watch } from 'vue';
+import { CaptureError, requestCapture } from '../markup/markup';
 
 const props = defineProps<{ projectId: string; available: boolean; version: number; title: string }>();
 
@@ -39,6 +40,8 @@ function focusGame() {
 
 defineExpose({
   reload: () => { reloads.value++; },
+  /** Snapshot of the running game (see markup.ts); rejects when there is no game or it can't be read. */
+  capture: () => (frame.value ? requestCapture(frame.value) : Promise.reject(new CaptureError('no-frame'))),
   fullscreen: () => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void stage.value?.requestFullscreen?.();
@@ -49,6 +52,7 @@ defineExpose({
 <template>
   <div ref="stage" class="stage" :style="{ '--ar': ratio }">
     <iframe v-if="available" ref="frame" :key="src" :src="src" :sandbox="SANDBOX" :title="title" allow="fullscreen" @load="focusGame" />
+    <slot v-if="available" name="overlay" />
     <div v-else class="empty">
       <p>试玩通过后这里会出现游戏</p>
       <slot />

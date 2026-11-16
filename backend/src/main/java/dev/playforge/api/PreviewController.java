@@ -88,8 +88,11 @@ public class PreviewController {
                 .body(body);
     }
 
-    /** Served by the web UI (web/public/hidpi.js); a classic script, so the opaque origin needs no CORS for it. */
-    static final String HI_DPI_SHIM = "<script defer src=\"/hidpi.js\"></script>";
+    /**
+     * Served by the web UI (web/public): the hi-DPI shim and the capture bridge (answers the platform's
+     * "circle to edit" snapshot request). Classic scripts, so the opaque origin needs no CORS for them.
+     */
+    static final String HI_DPI_SHIM = "<script defer src=\"/hidpi.js\"></script><script defer src=\"/bridge.js\"></script>";
     private static final Pattern MODULE_SCRIPT = Pattern.compile("<script[^>]*type=[\"']module[\"']", Pattern.CASE_INSENSITIVE);
     private static final Pattern HEAD_END = Pattern.compile("</head>", Pattern.CASE_INSENSITIVE);
     private static final Pattern DOCTYPE = Pattern.compile("^\\s*<!doctype[^>]*>", Pattern.CASE_INSENSITIVE);

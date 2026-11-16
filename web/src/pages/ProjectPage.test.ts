@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
-import type { ProjectView, RunEvent, RunStatus } from '../api/types';
+import type { ProjectView, RunEvent, RunStatus, RunView } from '../api/types';
 import ProjectPage from './ProjectPage.vue';
 import { globalPlugins, json, stubApi } from '../test-utils';
+
+// The game frame never loads in jsdom: stand in for the capture handshake and the canvas drawing.
+const capture = vi.hoisted(() => vi.fn());
+vi.mock('../markup/markup', async (orig) => ({
+  ...(await orig<typeof import('../markup/markup')>()),
+  requestCapture: capture,
+  annotate: vi.fn(async () => 'data:image/png;base64,annotated'),
+}));
 
 /** Stand-in for the browser EventSource; every instance is recorded. */
 class FakeEventSource {
@@ -26,12 +34,12 @@ class FakeEventSource {
 
 const ID = 'abcdefghijkl';
 
-function run(id: number, status: RunStatus, instruction = '躲陨石') {
+function run(id: number, status: RunStatus, instruction = '躲陨石'): RunView {
   return { id, projectId: ID, instruction, status, error: null, baseCommit: null, resultCommit: null,
     createdAt: '2026-11-15T00:00:00Z', startedAt: null, finishedAt: null, steps: [] };
 }
 
-function project(runs: ReturnType<typeof run>[], previewAvailable = false): ProjectView {
+function project(runs: RunView[], previewAvailable = false): ProjectView {
   return { id: ID, title: '躲陨石', prompt: '躲陨石', createdAt: '2026-11-15T00:00:00Z', previewAvailable, runs };
 }
 
@@ -126,6 +134,50 @@ describe('ProjectPage', () => {
     const post = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith('/runs') && init?.method === 'POST')!;
     expect(JSON.parse(post[1]!.body as string)).toEqual({ instruction: '敌人再快一点' });
     expect(lastSource().url).toBe('/api/runs/6/events');
+  });
+
+  it('circle to edit: boxes on a snapshot go with the follow-up, and the story shows the marked screenshot', async () => {
+    capture.mockResolvedValue({ image: 'data:image/png;base64,c25hcA==', width: 480, height: 320 });
+    let views = [project([run(5, 'SUCCEEDED')], true),
+      project([run(5, 'SUCCEEDED'), { ...run(6, 'QUEUED', '框 1 的分数放大'), markup: { canvas: { width: 480, height: 320 }, boxes: [] } }], true)];
+    const fetchMock = stubApi([
+      ['GET', /\/api\/projects\/abcdefghijkl$/, () => json(views.length > 1 ? views.shift() : views[0])],
+      ['POST', /\/api\/projects\/abcdefghijkl\/runs$/, () => json({ projectId: ID, runId: 6 }, 201)],
+    ]);
+    const w = await mountPage();
+
+    await w.find('[data-test="markup-start"]').trigger('click');
+    await flushPromises();
+    expect(w.find('[data-test="markup-hint"]').exists()).toBe(true);
+    const surface = w.find('[data-test="markup-surface"]');
+    (surface.element as HTMLElement).getBoundingClientRect = () => ({ left: 0, top: 0, width: 480, height: 320 }) as DOMRect;
+    await surface.trigger('pointerdown', { button: 0, pointerId: 1, clientX: 48, clientY: 32 });
+    await surface.trigger('pointerup', { pointerId: 1, clientX: 240, clientY: 160 });
+    expect(w.find('[data-test="markup-count"]').text()).toBe('已圈 1 处');
+
+    await w.find('[data-test="follow-up"] textarea').setValue('框 1 的分数放大');
+    await w.find('[data-test="follow-up-submit"]').trigger('click');
+    await flushPromises();
+
+    const post = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith('/runs') && init?.method === 'POST')!;
+    const body = JSON.parse(post[1]!.body as string);
+    expect(body.instruction).toBe('框 1 的分数放大');
+    expect(body.markup.image).toBe('data:image/png;base64,annotated');
+    expect(body.markup.canvas).toEqual({ width: 480, height: 320 });
+    expect(body.markup.boxes[0].x).toBeCloseTo(0.1);
+    expect(body.markup.boxes[0].w).toBeCloseTo(0.4);
+    expect(w.find('[data-test="markup-layer"]').exists()).toBe(false);
+    expect(w.find('[data-test="marked-shot"] img').attributes('src')).toBe('/api/runs/6/markup.png');
+  });
+
+  it('circle to edit tells the player when the game cannot be captured', async () => {
+    capture.mockRejectedValue(new Error('unreadable'));
+    stubApi([['GET', /\/api\/projects\/abcdefghijkl$/, () => json(project([run(5, 'SUCCEEDED')], true))]]);
+    const w = await mountPage();
+    await w.find('[data-test="markup-start"]').trigger('click');
+    await flushPromises();
+    expect(w.text()).toContain('截取不到');
+    expect(w.find('[data-test="markup-layer"]').exists()).toBe(false);
   });
 
   it('shows the sandboxed preview when available', async () => {

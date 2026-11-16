@@ -1,4 +1,5 @@
 import type { Created, ProjectView, RunStatus, RunView } from './types';
+import type { MarkupPayload } from '../markup/markup';
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -32,8 +33,9 @@ export const api = {
   listProjects: () => request<ProjectView[]>('GET', '/api/projects'),
   getProject: (id: string) => request<ProjectView>('GET', `/api/projects/${encodeURIComponent(id)}`),
   createProject: (prompt: string) => request<Created>('POST', '/api/projects', { prompt }),
-  createRun: (projectId: string, instruction: string) =>
-    request<Created>('POST', `/api/projects/${encodeURIComponent(projectId)}/runs`, { instruction }),
+  createRun: (projectId: string, instruction: string, markup?: MarkupPayload) =>
+    request<Created>('POST', `/api/projects/${encodeURIComponent(projectId)}/runs`, markup ? { instruction, markup } : { instruction }),
+  markupImageUrl: (runId: number) => `/api/runs/${runId}/markup.png`,
   getRun: (runId: number) => request<RunView>('GET', `/api/runs/${runId}`),
   cancelRun: (runId: number) => request<void>('POST', `/api/runs/${runId}/cancel`),
 };
