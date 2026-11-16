@@ -1,9 +1,9 @@
 // Exports playable games and their generation history from a running PlayForge backend into the static
 // showcase site (showcase/site), ready for GitHub Pages.
 //
-// Usage (backend running on 8090, any profile):  node showcase/export.mjs [--api http://localhost:8090]
+// Usage (backend running on 8090, any profile):  node showcase/export.mjs [--api http://localhost:8090] [projectId ...]
 //
-// For every project with a playtested build:
+// For every project with a playtested build (or only the listed projects: the curated showcase):
 //   site/games/<id>/play/   ← previews/<id>/  (the built game)
 //   site/data/games.json    ← project, runs, steps and the full event log of every run
 import fs from 'node:fs';
@@ -14,6 +14,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
 const site = path.join(here, 'site');
 const api = process.argv.includes('--api') ? process.argv[process.argv.indexOf('--api') + 1] : 'http://localhost:8090';
+const picked = process.argv.slice(2).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--api');
 
 async function getJson(url) {
   const res = await fetch(api + url);
@@ -43,7 +44,12 @@ async function runEvents(runId) {
   return events;
 }
 
-const projects = (await getJson('/api/projects')).filter((p) => p.previewAvailable);
+let projects = (await getJson('/api/projects')).filter((p) => p.previewAvailable);
+if (picked.length) {
+  const missing = picked.filter((id) => !projects.some((p) => p.id === id));
+  if (missing.length) throw new Error(`no playable project with id ${missing.join(', ')}`);
+  projects = picked.map((id) => projects.find((p) => p.id === id));
+}
 fs.rmSync(path.join(site, 'games'), { recursive: true, force: true });
 fs.mkdirSync(path.join(site, 'data'), { recursive: true });
 

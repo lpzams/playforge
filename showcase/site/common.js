@@ -48,6 +48,24 @@ function segments(run) {
   return out;
 }
 
+/** Claude's own notes as the coder (CODE/FIX steps), not its replies as the AI player or the judge. */
+function coderTexts(run) {
+  return segments(run)
+    .filter((s) => s.type === 'CODE' || s.type === 'FIX')
+    .flatMap((s) => s.events.filter((e) => e.type === 'AGENT_TEXT' && e.source === 'claude'));
+}
+
+/** The AI playthrough recorded in a PLAYTEST step, if any, and the judge's fun score. */
+function playOf(seg) {
+  const result = seg.events.find((e) => e.type === 'PLAYTEST_RESULT');
+  const fun = seg.events.find((e) => e.type === 'FUN_SCORE');
+  return { result: result?.payload, ai: result?.payload?.aiPlay || null, fun: fun?.payload || null };
+}
+
+const SCORE_NAMES = { fit: '契合度', difficulty: '难度', visuals: '画面', feedback: '反馈感' };
+const scoreLine = (scores) => Object.keys(SCORE_NAMES).filter((k) => scores && k in scores)
+  .map((k) => `${SCORE_NAMES[k]} ${scores[k]}`).join(' · ');
+
 function analyse(game) {
   const events = game.runs.flatMap((r) => r.events);
   const reviews = events.filter((e) => e.type === 'REVIEW_RESULT');

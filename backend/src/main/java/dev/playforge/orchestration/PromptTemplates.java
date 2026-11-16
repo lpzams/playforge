@@ -143,7 +143,8 @@ public final class PromptTemplates {
                 Rules:
                 - Assert only what the request asks for or what any game of this kind must do. Prefer
                   t.waitFor with generous timeouts over fixed waits; never assert exact timings or positions.
-                - Write 3 to 8 assertions with plain English messages.
+                - Write 3 to 8 assertions; write each message as a short sentence in Simplified Chinese that says
+                  what should happen (for example "按 → 键后篮子向右移动").
                 - Finish within 40 seconds. Do not import anything and do not touch the DOM.
 
                 Reply with ONLY the module in a ```js code block.

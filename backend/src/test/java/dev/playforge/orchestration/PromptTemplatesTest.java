@@ -42,7 +42,8 @@ class PromptTemplatesTest {
                 .contains("export default async function play(t)")
                 .contains("t.expect(").contains("t.waitFor(").contains("t.shot(")
                 .contains("Do NOT modify any files")
-                .contains("```js");
+                .contains("```js")
+                .contains("Simplified Chinese");
     }
 
     @Test

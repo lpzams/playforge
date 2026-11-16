@@ -74,8 +74,27 @@ function buildBeats(game) {
     if (first) push('prompt', { text: run.prompt || game.prompt }, first.ts, typing(run.prompt || game.prompt, TYPE_TEXT * 1.5, 2500));
     for (const seg of segs) {
       push('step', seg, seg.start);
+      // In a PLAYTEST step Claude speaks twice: first as the AI player (writes the playthrough), then, after the
+      // result, as the judge (reads the screenshots). Neither is the coder's prose.
+      const playtest = seg.type === 'PLAYTEST';
+      let judging = false;
+      let announced = false;
       for (const e of seg.events) {
         const p = e.payload;
+        if (playtest && e.source === 'claude' && !judging && !announced) {
+          announced = true;
+          push('phase', { text: 'AI 试玩员先读代码，再写一段试玩脚本。' }, e.ts);
+        }
+        if (playtest && judging && e.type === 'TOOL_CALL' && p.name === 'Read') {
+          const file = rel(toolInput(p.input || '').file_path).replace(/^dist\//, '');
+          if (/\.png$/.test(file)) push('look', { file }, e.ts, 700);
+          continue;
+        }
+        if (playtest && e.type === 'AGENT_TEXT' && e.source === 'claude') {
+          const script = !judging && (p.text.match(/```(?:js|javascript)?\s*\n([\s\S]*?)```/) || [])[1];
+          if (script) push('script', { code: script.trim() }, e.ts, typing(script, TYPE_CODE, 4000));
+          continue;
+        }
         if (e.type === 'TOOL_CALL') {
           const input = toolInput(p.input || '');
           if (p.name === 'Bash' && input.command) {
@@ -99,7 +118,11 @@ function buildBeats(game) {
           const n = (p.issues || []).reduce((s, i) => s + i.message.length, 0);
           push('review', { issues: p.issues || [] }, e.ts, typing('x'.repeat(n), TYPE_TEXT * 2, 5000));
         } else if (e.type === 'PLAYTEST_RESULT') {
-          push('playtest', p, e.ts, ((p.checks || []).length / 4) * 1000 + 300);
+          const ai = p.aiPlay && !p.aiPlay.skipped ? (p.aiPlay.assertions || []).length : 0;
+          push('playtest', p, e.ts, ((p.checks || []).length / 4) * 1000 + 300 + ai * 350 + (ai ? 800 : 0));
+          judging = true;
+        } else if (e.type === 'FUN_SCORE') {
+          push('fun', p, e.ts, typing(p.summary || '', TYPE_TEXT, 4000));
         } else if (e.type === 'RUN_FINISHED') {
           push('finished', p, e.ts);
         }
@@ -150,7 +173,7 @@ function setupReplay(game, restoreStatic) {
       case 'step': {
         const [name, cls, mono, doing] = R_ACTORS[d.type] || [d.type, '', '·', '进行中'];
         const status = el('span', { class: 'live' }, doing);
-        const waiting = el('div', { class: 'waiting' }, d.type === 'REVIEW' ? 'Codex 正在读代码' : d.type === 'PLAYTEST' ? '无头浏览器正在加载游戏' : d.type === 'COMMIT' ? '' : 'Claude 正在思考');
+        const waiting = el('div', { class: 'waiting' }, d.type === 'REVIEW' ? 'Codex 正在读代码' : d.type === 'PLAYTEST' ? 'AI 试玩员正在工作' : d.type === 'COMMIT' ? '' : 'Claude 正在思考');
         const body = el('div', {}, el('div', { class: 'entry-head' }, el('span', { class: 'name' }, name), status), waiting);
         feed.append(el('li', { class: 'entry active' }, el('div', { class: `who ${cls}` }, mono), body));
         cur = { body, status, waiting, seg: d, tokens: 0 };
@@ -202,10 +225,53 @@ function setupReplay(game, restoreStatic) {
         const failed = checks.filter((c) => !c.passed);
         const verdict = add(el('p', { class: `entry-text${failed.length ? ' bad' : ''}` }, failed.length ? '试玩没有通过：' : `${checks.length} 项检查全部通过。`));
         anims.push({ node: verdict, kind: 'show', start: b.t + b.dur - 300, dur: 0, owner: cur });
+        const hardEnd = b.t + (checks.length / 4) * 1000;
         if (failed.length) {
           const ul = add(el('ul', { class: 'failed' }, ...failed.map((c) => el('li', {}, failText(c), c.detail ? el('span', {}, `（${checkName(c.name)}：${c.detail}）`) : null))));
-          anims.push({ node: ul, kind: 'show', start: b.t + b.dur - 300, dur: 0, owner: cur });
+          anims.push({ node: ul, kind: 'show', start: hardEnd, dur: 0, owner: cur });
         }
+        // The AI player's own round: each assertion it recorded, then its screenshots.
+        const ai = d.aiPlay;
+        if (ai && !ai.skipped) {
+          const asserts = ai.assertions || [];
+          const missed = asserts.filter((a) => !a.passed);
+          const lead = add(el('p', { class: `entry-text${missed.length && !ai.waived ? ' bad' : ''}` }, ai.inconclusive
+            ? 'AI 试玩员的脚本没能跑完，这一项不影响结果。'
+            : `AI 试玩员按脚本玩了一局${missed.length ? `，${missed.length} 项没过${ai.waived ? '（修复轮数已用完，按硬性检查放行）' : '：'}` : '：'}`));
+          anims.push({ node: lead, kind: 'show', start: hardEnd + 200, dur: 0, owner: cur });
+          if (asserts.length) {
+            const ul = add(el('ul', { class: 'ai-checks' }, ...asserts.map((a) => el('li', { class: a.passed ? '' : 'fail' }, a.message))));
+            animate(ul, 'lines', asserts.length, { t: hardEnd + 400, dur: asserts.length * 350 });
+          }
+          const shots = (ai.shots || []).filter((s) => s.file);
+          if (shots.length) {
+            const strip = add(el('div', { class: 'shots' }, ...shots.map((s) => el('figure', {},
+              el('img', { src: `games/${game.id}/play/${s.file}`, alt: s.label }), el('figcaption', {}, s.label)))));
+            animate(strip, 'lines', shots.length, { t: hardEnd + 400 + asserts.length * 350, dur: 600 });
+          }
+        }
+        break;
+      }
+      case 'phase': add(el('p', { class: 'entry-text' }, d.text)); break;
+      case 'script': {
+        add(act('写出', 'AI 试玩脚本'));
+        const pre = add(el('pre', { class: 'code' }));
+        animate(pre, 'chars', d.code.split('\n').slice(0, 18).join('\n') + (d.code.split('\n').length > 18 ? '\n…' : ''), b);
+        break;
+      }
+      case 'look': {
+        if (!cur.looking) {
+          add(el('p', { class: 'entry-text' }, 'AI 评委逐张查看截图：'));
+          cur.looking = add(el('div', { class: 'shots looking' }));
+        }
+        const fig = el('figure', {}, el('img', { src: `games/${game.id}/play/${d.file}`, alt: '' }));
+        cur.looking.append(fig);
+        break;
+      }
+      case 'fun': {
+        add(el('p', { class: 'entry-text' }, `AI 评委打分（仅供参考）：${scoreLine(d.scores)}`));
+        const p = add(el('p', { class: 'entry-text say' }));
+        animate(p, 'chars', d.summary || '', b);
         break;
       }
       case 'finished':

@@ -333,7 +333,7 @@ async function main() {
           }
           const scope = m.playersOnly ? "entities of type 'player'" : 'entities';
           check(name, m.ok, m.ok
-            ? `${m.turned.length ? `turned: ${m.turned.join(', ')}` : `changed: ${m.novel.join(', ') || 'status'}`}${via}`
+            ? `${m.novel.length ? `changed: ${m.novel.join(', ')}` : m.turned.length ? `turned: ${m.turned.join(', ')}` : 'changed: status'}${via}`
             : `pressing ${action.keys.join('+')} for ${HOLD_MS}ms changed no ${scope}, their direction or status beyond what changes without input`);
         } catch (e) {
           check(name, false, e.message);
