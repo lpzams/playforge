@@ -23,6 +23,16 @@ class PromptTemplatesTest {
     }
 
     @Test
+    void markupSectionGivesBoxesInCanvasPixelsAndTheImage() {
+        dev.playforge.run.Markup m = new dev.playforge.run.Markup(new dev.playforge.run.Markup.Canvas(480, 320),
+                java.util.List.of(new dev.playforge.run.Markup.Box(0.25, 0.125, 0.5, 0.25), new dev.playforge.run.Markup.Box(0, 0, 0.1, 0.1)));
+        String p = PromptTemplates.markup(m, "/tmp/playforge/marked.png");
+        assertThat(p).contains("480×320").contains("Box 1: x 120–360, y 40–120").contains("Box 2: x 0–48, y 0–32")
+                .contains("/tmp/playforge/marked.png").contains("Read tool");
+        assertThat(PromptTemplates.markup(m, null)).contains("could not be provided").doesNotContain("Read tool");
+    }
+
+    @Test
     void codePromptExplainsPlaytestEnvironmentLimits() {
         String p = PromptTemplates.code("x");
         assertThat(p).contains("window.addEventListener").contains("localStorage")

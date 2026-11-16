@@ -9,6 +9,7 @@ import dev.playforge.event.RunEventType;
 import dev.playforge.orchestration.OrchestrationTestConfig.ScriptedPlaytester;
 import dev.playforge.playtest.PlaytestReport;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import dev.playforge.run.Markup;
 import dev.playforge.run.Run;
 import dev.playforge.run.RunMapper;
 import dev.playforge.run.RunStatus;
@@ -67,6 +68,19 @@ class RunOrchestratorTest {
     Run execute(Run run) {
         orchestrator.execute(run.getId(), new CancellationToken());
         return store.getRun(run.getId());
+    }
+
+    @Test
+    void markedFollowUpGivesTheCoderTheBoxesInCanvasPixels() {
+        Run first = execute(newRun());
+        Markup markup = new Markup(new Markup.Canvas(400, 600), List.of(new Markup.Box(0.5, 0.5, 0.25, 0.1)));
+        Run second = store.createRun(first.getProjectId(), "框 1 的分数放大", markup);
+        assertThat(execute(second).getStatus()).isEqualTo(RunStatus.SUCCEEDED);
+
+        // first run's coder call has no markup, the follow-up's does (no image stored: coordinates only)
+        assertThat(scriptedCoder.calls.get(0).prompt()).doesNotContain("pointed at areas");
+        assertThat(scriptedCoder.calls.getLast().prompt()).contains("框 1 的分数放大")
+                .contains("400×600").contains("Box 1: x 200–300, y 300–360").contains("could not be provided");
     }
 
     List<StepType> stepTypes(Run run) {

@@ -25,6 +25,9 @@ import dev.playforge.playtest.PlaytestReport;
 import dev.playforge.playtest.Playtester;
 import dev.playforge.review.ReviewParser;
 import dev.playforge.review.ReviewReport;
+import dev.playforge.process.ExecResult;
+import dev.playforge.run.Markup;
+import dev.playforge.run.MarkupImages;
 import dev.playforge.run.Run;
 import dev.playforge.run.RunStatus;
 import dev.playforge.run.RunStore;
@@ -44,6 +47,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -76,11 +80,17 @@ public class RunOrchestrator {
     private final ObjectMapper json;
     private final SecretRedactor redactor;
     private final RunPlanner planner;
+    private final MarkupImages markupImages;
     private final ExecutorService watchdog = Executors.newVirtualThreadPerTaskExecutor();
+
+    /** Outside /workspace so syncIn/syncOut (which mirror the project) never touch it. */
+    static final String MARKED_PATH = "/tmp/playforge/marked.png";
+    static final List<String> WRITE_MARKED = List.of("sh", "-c", "mkdir -p /tmp/playforge && base64 -d > " + MARKED_PATH);
 
     public RunOrchestrator(RunStore store, RunEventPublisher events, EngineRegistry engines, SandboxProvider sandboxes,
                            Playtester playtester, PlayforgeProperties props, ObjectMapper json,
-                           SecretRedactor redactor) {
+                           SecretRedactor redactor, MarkupImages markupImages) {
+        this.markupImages = markupImages;
         this.store = store;
         this.events = events;
         this.engines = engines;
@@ -171,7 +181,7 @@ public class RunOrchestrator {
         String instruction = ctx.run().getInstruction();
         switch (step.getType()) {
             case CODE -> {
-                AgentResult r = callEngine(ctx, engines.coder(), AgentRole.CODER, PromptTemplates.code(instruction));
+                AgentResult r = callEngine(ctx, engines.coder(), AgentRole.CODER, withMarkup(ctx, PromptTemplates.code(instruction)));
                 ctx.sandbox().syncOut(ctx.hostDir());
                 store.completeStep(step.getId(), null, write(Map.of("finalText", r.finalText())));
             }
@@ -179,7 +189,7 @@ public class RunOrchestrator {
                 String prompt = step.getTrigger() == StepTrigger.PLAYTEST
                         ? PromptTemplates.fixFromPlaytest(instruction, read(lastDone(history, StepType.PLAYTEST), PlaytestReport.class).failures())
                         : PromptTemplates.fixFromReview(instruction, read(lastDone(history, StepType.REVIEW), ReviewReport.class).blockers());
-                AgentResult r = callEngine(ctx, engines.coder(), AgentRole.CODER, prompt);
+                AgentResult r = callEngine(ctx, engines.coder(), AgentRole.CODER, withMarkup(ctx, prompt));
                 ctx.sandbox().syncOut(ctx.hostDir());
                 store.completeStep(step.getId(), null, write(Map.of("finalText", r.finalText())));
             }
@@ -203,6 +213,33 @@ public class RunOrchestrator {
                 store.completeStep(step.getId(), null, write(Map.of("commit", hash)));
             }
         }
+    }
+
+    /**
+     * For a request with marked areas: copies the marked screenshot into the sandbox (again before every
+     * coder step: a resumed run has a fresh sandbox) and appends the boxes in game-canvas pixels. When the
+     * image can't be written the coordinates still go.
+     */
+    private String withMarkup(Ctx ctx, String prompt) {
+        Markup markup = Markup.fromJson(ctx.run().getMarkup());
+        if (markup == null) return prompt;
+        return prompt + PromptTemplates.markup(markup, writeMarkedImage(ctx) ? MARKED_PATH : null);
+    }
+
+    private boolean writeMarkedImage(Ctx ctx) {
+        Optional<byte[]> png = markupImages.load(ctx.run().getId());
+        if (png.isEmpty()) return false;
+        try {
+            ExecResult r = ctx.sandbox().exec(WRITE_MARKED, Base64.getEncoder().encodeToString(png.get()),
+                    Duration.ofSeconds(30), ctx.cancel(), line -> { });
+            if (r.exitCode() == 0) return true;
+            log.warn("run {}: could not write the marked screenshot: {}", ctx.run().getId(), r.stderrTail().strip());
+        } catch (CancelledException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn("run {}: could not write the marked screenshot", ctx.run().getId(), e);
+        }
+        return false;
     }
 
     /**

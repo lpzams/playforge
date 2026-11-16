@@ -126,6 +126,61 @@ class ProjectControllerTest {
                 .andExpect(jsonPath("$.error").exists());
     }
 
+    static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 13};
+
+    Map<String, Object> markup(String image, double w) {
+        return Map.of("image", image, "canvas", Map.of("width", 480, "height", 320),
+                "boxes", List.of(Map.of("x", 0.1, "y", 0.2, "w", w, "h", 0.3)));
+    }
+
+    long finishedProject(String prompt) throws Exception {
+        JsonNode created = createProject(prompt);
+        long runId = created.get("runId").asLong();
+        await().atMost(Duration.ofSeconds(20)).until(() -> !List.of("QUEUED", "RUNNING")
+                .contains(getJson("/api/runs/" + runId).get("status").asText()));
+        return runId;
+    }
+
+    @Test
+    void followUpWithMarkupStoresBoxesAndServesTheScreenshot() throws Exception {
+        String projectId = getJson("/api/runs/" + finishedProject("接金币")).get("projectId").asText();
+        String image = "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(PNG);
+        String body = mvc.perform(post("/api/projects/" + projectId + "/runs").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("instruction", "框 1 里的篮子大一点", "markup", markup(image, 0.4)))))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long runId = json.readTree(body).get("runId").asLong();
+
+        JsonNode run = getJson("/api/runs/" + runId);
+        assertThat(run.at("/markup/canvas/width").asInt()).isEqualTo(480);
+        assertThat(run.at("/markup/boxes/0/w").asDouble()).isEqualTo(0.4);
+        mvc.perform(get("/api/runs/" + runId + "/markup.png"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().contentType(MediaType.IMAGE_PNG))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().bytes(PNG));
+        await().atMost(Duration.ofSeconds(20)).until(() -> getJson("/api/runs/" + runId).get("status").asText().equals("SUCCEEDED"));
+    }
+
+    @Test
+    void invalidMarkupIs400AndCreatesNoRun() throws Exception {
+        String projectId = getJson("/api/runs/" + finishedProject("躲陨石")).get("projectId").asText();
+        String png = "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(PNG);
+        String svg = "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString("<svg/>".getBytes());
+        for (Map<String, Object> bad : List.of(markup(svg, 0.4), markup(png, 0.95))) {
+            mvc.perform(post("/api/projects/" + projectId + "/runs").contentType(MediaType.APPLICATION_JSON)
+                            .content(json.writeValueAsString(Map.of("instruction", "改一下", "markup", bad))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.startsWith("markup.")));
+        }
+        assertThat(getJson("/api/projects/" + projectId).get("runs")).hasSize(1);
+    }
+
+    @Test
+    void plainRunHasNoMarkupScreenshot() throws Exception {
+        long runId = finishedProject("打砖块");
+        assertThat(getJson("/api/runs/" + runId).get("markup").isNull()).isTrue();
+        mvc.perform(get("/api/runs/" + runId + "/markup.png")).andExpect(status().isNotFound());
+    }
+
     @Test
     void unknownProjectIs404() throws Exception {
         mvc.perform(get("/api/projects/doesnotexist")).andExpect(status().isNotFound())

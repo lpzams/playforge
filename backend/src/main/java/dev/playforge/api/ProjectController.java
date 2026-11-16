@@ -7,6 +7,8 @@ import dev.playforge.api.dto.ProjectView;
 import dev.playforge.api.dto.RunView;
 import dev.playforge.config.PlayforgeProperties;
 import dev.playforge.orchestration.RunExecutor;
+import dev.playforge.run.Markup;
+import dev.playforge.run.MarkupImages;
 import dev.playforge.run.Project;
 import dev.playforge.run.Run;
 import dev.playforge.run.RunStatus;
@@ -34,8 +36,11 @@ public class ProjectController {
     private final RunExecutor executor;
     private final PlayforgeProperties props;
 
-    public ProjectController(RunStore store, RunExecutor executor, PlayforgeProperties props) {
+    private final MarkupImages images;
+
+    public ProjectController(RunStore store, RunExecutor executor, PlayforgeProperties props, MarkupImages images) {
         this.props = props;
+        this.images = images;
         this.store = store;
         this.executor = executor;
     }
@@ -56,7 +61,25 @@ public class ProjectController {
         boolean busy = store.listRuns(projectId).stream()
                 .anyMatch(r -> r.getStatus() == RunStatus.QUEUED || r.getStatus() == RunStatus.RUNNING);
         if (busy) throw new ConflictException("project " + projectId + " already has an active run");
-        Run run = store.createRun(projectId, req.instruction());
+        Markup markup = null;
+        byte[] image = null;
+        if (req.markup() != null) {
+            try {
+                markup = req.markup().markup();
+                image = MarkupImages.decode(req.markup().image());
+            } catch (IllegalArgumentException e) {
+                throw new BadRequestException(e.getMessage());
+            }
+        }
+        Run run = store.createRun(projectId, req.instruction(), markup);
+        if (image != null) {
+            try {
+                images.save(run.getId(), image);
+            } catch (RuntimeException e) {
+                store.finishRun(run.getId(), RunStatus.FAILED, "could not store the marked screenshot", null);
+                throw e;
+            }
+        }
         executor.submit(run.getId());
         return new CreatedResponse(projectId, run.getId());
     }
