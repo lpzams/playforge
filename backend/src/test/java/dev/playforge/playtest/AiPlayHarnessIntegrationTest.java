@@ -27,7 +27,7 @@ class AiPlayHarnessIntegrationTest {
         assumeTrue(new CliDockerOps(new ProcessRunner(), "docker", System::getenv).available(), "Docker is not available");
     }
 
-    record Played(AiPlayResult result, List<String> files, Duration elapsed) {}
+    record Played(AiPlayResult result, List<String> files, Duration elapsed, String cover) {}
 
     /** Copies the fixture to a writable dist, feeds the script on stdin, runs play.mjs, lists the screenshots. */
     static Played play(String script) {
@@ -36,13 +36,15 @@ class AiPlayHarnessIntegrationTest {
         ExecResult r = new ProcessRunner().run(List.of("docker", "run", "--rm", "-i", IMAGE, "sh", "-c",
                         "cp -r /opt/playtest/fixtures/good /tmp/g && cat > /tmp/play.mjs"
                                 + " && node /opt/playtest/play.mjs --dist /tmp/g --script /tmp/play.mjs"
-                                + " && echo FILES $(ls /tmp/g/playtest)"),
+                                + " && echo FILES $(ls /tmp/g/playtest)"
+                                + " && echo COVER $(cmp -s /tmp/g/cover.png /tmp/g/playtest/02-moved-right.png && echo mid || echo other)"),
                 Map.of(), script.getBytes(java.nio.charset.StandardCharsets.UTF_8), Duration.ofSeconds(150), new CancellationToken(), out::add);
         Duration elapsed = Duration.ofNanos(System.nanoTime() - t0);
         AiPlayResult result = AiPlayResultParser.parse(out, r.stderrTail());
         List<String> files = out.stream().filter(l -> l.startsWith("FILES")).findFirst()
                 .map(l -> List.of(l.substring(5).trim().split("\\s+"))).orElse(List.of());
-        return new Played(result, files, elapsed);
+        String cover = out.stream().filter(l -> l.startsWith("COVER")).findFirst().map(l -> l.substring(5).trim()).orElse("");
+        return new Played(result, files, elapsed, cover);
     }
 
     @Test
@@ -65,6 +67,7 @@ class AiPlayHarnessIntegrationTest {
         assertThat(p.result().shots()).extracting(AiPlayResult.Shot::label).containsExactly("start", "moved right", "end");
         assertThat(p.files()).containsExactly("01-start.png", "02-moved-right.png", "03-end.png");
         assertThat(p.result().log()).hasSize(1);
+        assertThat(p.cover()).as("cover is the mid-game screenshot").isEqualTo("mid");
     }
 
     @Test

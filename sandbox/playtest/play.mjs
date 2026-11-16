@@ -175,6 +175,11 @@ async function main() {
     } finally {
       await shoot('end').catch(() => {});
     }
+    // A mid-game screenshot makes a better cover than the hard checks' first frame (usually a start screen).
+    const midGame = shots.find((s) => !/^(start|end)$/.test(s.label) && !/over|restart|结束|重新/i.test(s.label));
+    if (midGame) {
+      try { fs.copyFileSync(path.join(dist, midGame.file), path.join(dist, 'cover.png')); } catch { /* keep the old cover */ }
+    }
     // Errors thrown by the game while it was being played are a real finding, not a script problem.
     const gameErrors = errors.slice(errorsBefore);
     if (gameErrors.length) {

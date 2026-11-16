@@ -124,7 +124,7 @@ onUnmounted(() => stream?.close());
         test-id="follow-up"
         :disabled="active"
         :submitting="submitting"
-        :placeholder="active ? '正在生成中，完成后可以继续修改' : '继续修改，例如：陨石再快一点、加一个最高分记录（Ctrl + Enter 发送）'"
+        :placeholder="active ? '正在生成中，完成后可以继续修改' : '继续修改，例如：速度再快一点、加一个最高分记录（Ctrl + Enter 发送）'"
         @submit="followUp"
       >
         <template v-if="active" #right>
