@@ -72,4 +72,48 @@ class DockerPlaytesterTest {
         assertThat(r.failures().getFirst()).startsWith("playtest timed out");
         assertThat(r.details().get("checks").toString()).contains("build");
     }
+
+    // ---------- AI play ----------
+
+    static final String SCRIPT = "export default async function play(t) { t.expect(true, 'ok'); }";
+
+    @Test
+    void aiPlayWritesTheScriptThenRunsTheHarness() {
+        SequencedExecSandbox sandbox = new SequencedExecSandbox()
+                .then(List.of(), 0, "")
+                .then(List.of("{\"aiplay\":1,\"ran\":true,\"assertions\":[{\"message\":\"ok\",\"passed\":true}],\"shots\":[],\"log\":[]}"), 0, "");
+
+        AiPlayResult r = playtester.play(sandbox, SCRIPT, new CancellationToken());
+
+        assertThat(playtester.supportsAiPlay()).isTrue();
+        assertThat(r.allPassed()).isTrue();
+        assertThat(sandbox.cmds.get(0)).containsExactly("sh", "-c", "mkdir -p /tmp/playforge && cat > /tmp/playforge/play.mjs");
+        assertThat(sandbox.stdins.get(0)).isEqualTo(SCRIPT);
+        assertThat(sandbox.cmds.get(1)).containsExactly("node", "/opt/playtest/play.mjs", "--dist", "/workspace/dist",
+                "--script", "/tmp/playforge/play.mjs");
+    }
+
+    @Test
+    void aiPlayTimeoutIsInconclusive() {
+        SequencedExecSandbox sandbox = new SequencedExecSandbox()
+                .then(List.of(), 0, "")
+                .thenThrow(new ProcessTimeoutException("docker timed out"));
+
+        AiPlayResult r = playtester.play(sandbox, SCRIPT, new CancellationToken());
+
+        assertThat(r.ran()).isFalse();
+        assertThat(r.inconclusive()).isTrue();
+        assertThat(r.error()).contains("timed out");
+    }
+
+    @Test
+    void aiPlayScriptWriteFailureIsInconclusive() {
+        SequencedExecSandbox sandbox = new SequencedExecSandbox().then(List.of(), 1, "read-only file system");
+
+        AiPlayResult r = playtester.play(sandbox, SCRIPT, new CancellationToken());
+
+        assertThat(r.inconclusive()).isTrue();
+        assertThat(r.error()).contains("read-only file system");
+        assertThat(sandbox.cmds).hasSize(1);
+    }
 }

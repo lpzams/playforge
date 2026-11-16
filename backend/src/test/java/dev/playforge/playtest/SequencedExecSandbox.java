@@ -28,6 +28,7 @@ class SequencedExecSandbox implements Sandbox {
 
     final Deque<Result> results = new ArrayDeque<>();
     final List<List<String>> cmds = new ArrayList<>();
+    final List<String> stdins = new ArrayList<>();
 
     SequencedExecSandbox then(List<String> stdout, int exitCode, String stderr) {
         results.add(new Result(stdout, exitCode, stderr));
@@ -43,6 +44,7 @@ class SequencedExecSandbox implements Sandbox {
     @Override
     public ExecResult exec(List<String> cmd, String stdin, Duration timeout, CancellationToken cancel, Consumer<String> out) {
         cmds.add(cmd);
+        stdins.add(stdin);
         Result r = results.poll();
         if (r == null) throw new AssertionError("unexpected exec " + cmd);
         if (r.toThrow() != null) throw r.toThrow();

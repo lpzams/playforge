@@ -24,9 +24,17 @@ public class EngineRegistry {
         return find(props.engines().reviewer(), AgentRole.REVIEWER);
     }
 
+    public AgentEngine player() {
+        return find(props.engines().playerOrCoder(), AgentRole.PLAYER);
+    }
+
+    public AgentEngine judge() {
+        return find(props.engines().judgeOrCoder(), AgentRole.JUDGE);
+    }
+
     private AgentEngine find(String name, AgentRole role) {
         return engines.stream()
-                .filter(e -> e.name().equals(name) && e.role() == role)
+                .filter(e -> e.name().equals(name) && e.supports(role))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("no " + role + " engine named " + name));
     }

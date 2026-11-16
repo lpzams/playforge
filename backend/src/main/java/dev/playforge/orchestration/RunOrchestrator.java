@@ -8,6 +8,7 @@ import dev.playforge.config.PlayforgeProperties;
 import dev.playforge.engine.AgentEngine;
 import dev.playforge.engine.AgentRequest;
 import dev.playforge.engine.AgentResult;
+import dev.playforge.engine.AgentRole;
 import dev.playforge.engine.EngineException;
 import dev.playforge.engine.EngineRegistry;
 import dev.playforge.engine.SecretRedactor;
@@ -158,7 +159,7 @@ public class RunOrchestrator {
         String instruction = ctx.run().getInstruction();
         switch (step.getType()) {
             case CODE -> {
-                AgentResult r = callEngine(ctx, engines.coder(), PromptTemplates.code(instruction));
+                AgentResult r = callEngine(ctx, engines.coder(), AgentRole.CODER, PromptTemplates.code(instruction));
                 ctx.sandbox().syncOut(ctx.hostDir());
                 store.completeStep(step.getId(), null, write(Map.of("finalText", r.finalText())));
             }
@@ -166,13 +167,13 @@ public class RunOrchestrator {
                 String prompt = step.getTrigger() == StepTrigger.PLAYTEST
                         ? PromptTemplates.fixFromPlaytest(instruction, read(lastDone(history, StepType.PLAYTEST), PlaytestReport.class).failures())
                         : PromptTemplates.fixFromReview(instruction, read(lastDone(history, StepType.REVIEW), ReviewReport.class).blockers());
-                AgentResult r = callEngine(ctx, engines.coder(), prompt);
+                AgentResult r = callEngine(ctx, engines.coder(), AgentRole.CODER, prompt);
                 ctx.sandbox().syncOut(ctx.hostDir());
                 store.completeStep(step.getId(), null, write(Map.of("finalText", r.finalText())));
             }
             case REVIEW -> {
                 String diff = ctx.git().diffWorkingTree(ctx.baseCommit());
-                AgentResult r = callEngine(ctx, engines.reviewer(), PromptTemplates.review(instruction, diff));
+                AgentResult r = callEngine(ctx, engines.reviewer(), AgentRole.REVIEWER, PromptTemplates.review(instruction, diff));
                 // The reviewer CLI can't be made read-only inside a container: discard anything it changed.
                 ctx.sandbox().syncIn(ctx.hostDir());
                 ReviewReport report = ReviewParser.parse(r.finalText());
@@ -212,10 +213,10 @@ public class RunOrchestrator {
     }
 
     /** Calls an engine, retrying retryable failures with exponential backoff. */
-    private AgentResult callEngine(Ctx ctx, AgentEngine engine, String prompt) throws EngineException {
+    private AgentResult callEngine(Ctx ctx, AgentEngine engine, AgentRole role, String prompt) throws EngineException {
         PlayforgeProperties.Orchestration o = props.orchestration();
         long runId = ctx.run().getId();
-        AgentRequest req = new AgentRequest(engine.role(), prompt, o.stepTimeout());
+        AgentRequest req = new AgentRequest(role, prompt, o.stepTimeout());
         for (int attempt = 1; ; attempt++) {
             ctx.cancel().throwIfCancelled();
             try {

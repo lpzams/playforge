@@ -66,6 +66,35 @@ public class DockerPlaytester implements Playtester {
         return new PlaytestReport(report.passed(), report.failures(), details);
     }
 
+    /** Outside /workspace so syncIn (which mirrors the project) leaves it alone. */
+    static final String SCRIPT_PATH = "/tmp/playforge/play.mjs";
+    static final List<String> WRITE_SCRIPT = List.of("sh", "-c", "mkdir -p /tmp/playforge && cat > " + SCRIPT_PATH);
+    static final List<String> PLAY = List.of("node", "/opt/playtest/play.mjs", "--dist", "/workspace/dist", "--script", SCRIPT_PATH);
+    private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration PLAY_TIMEOUT = Duration.ofMinutes(2);
+
+    @Override
+    public boolean supportsAiPlay() {
+        return true;
+    }
+
+    @Override
+    public AiPlayResult play(Sandbox sandbox, String script, CancellationToken cancel) {
+        try {
+            ExecResult write = sandbox.exec(WRITE_SCRIPT, script, WRITE_TIMEOUT, cancel, line -> { });
+            if (write.exitCode() != 0) return inconclusive("could not write the play script: " + write.stderrTail().strip());
+            List<String> out = new CopyOnWriteArrayList<>();
+            ExecResult r = sandbox.exec(PLAY, null, PLAY_TIMEOUT, cancel, out::add);
+            return AiPlayResultParser.parse(out, r.stderrTail());
+        } catch (ProcessTimeoutException e) {
+            return inconclusive("ai-play timed out after " + PLAY_TIMEOUT.toMinutes() + " min");
+        }
+    }
+
+    private static AiPlayResult inconclusive(String error) {
+        return new AiPlayResult(false, error, List.of(), List.of(), List.of(), 0);
+    }
+
     private static Map<String, Object> check(String name, boolean passed, String detail) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("name", name);

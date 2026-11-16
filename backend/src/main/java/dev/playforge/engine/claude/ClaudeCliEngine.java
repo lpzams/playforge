@@ -37,6 +37,12 @@ public class ClaudeCliEngine implements AgentEngine {
         return AgentRole.CODER;
     }
 
+    /** Claude also plays the game (writes the playthrough) and judges screenshots (it can read images). */
+    @Override
+    public boolean supports(AgentRole role) {
+        return role == AgentRole.CODER || role == AgentRole.PLAYER || role == AgentRole.JUDGE;
+    }
+
     @Override
     public AgentResult run(AgentRequest req, Sandbox sandbox, AgentEventSink sink, CancellationToken cancel)
             throws EngineException {

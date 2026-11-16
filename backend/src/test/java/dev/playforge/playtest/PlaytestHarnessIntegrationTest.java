@@ -19,11 +19,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-/** Runs the real playtest harness (run.mjs) in the p3 image against static fixtures. */
+/** Runs the real playtest harness (run.mjs) in the sandbox image against static fixtures. */
 @Tag("docker")
 class PlaytestHarnessIntegrationTest {
 
-    static final String IMAGE = "playforge-sandbox:p3";
+    static final String IMAGE = "playforge-sandbox:p4";
     static final ObjectMapper JSON = new ObjectMapper();
 
     @BeforeAll

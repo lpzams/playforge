@@ -5,7 +5,7 @@
 | 项 | 检查方法 |
 |---|---|
 | Docker Desktop 已启动 | `docker version` 能输出 Server 版本 |
-| 已构建沙箱镜像 | `docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com/ -t playforge-sandbox:p3 sandbox`（约 3.6 GB，首次构建要下载 Chromium，十几分钟） |
+| 已构建沙箱镜像 | `docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com/ -t playforge-sandbox:p4 sandbox`（约 3.6 GB，首次构建要下载 Chromium，十几分钟） |
 | Claude 凭证 | 用户环境变量 `PLAYFORGE_CLAUDE_TOKEN`（由 `claude setup-token` 生成），**启动后端的终端或 IDE 必须是在设置变量之后打开的** |
 | Codex 凭证 | `%USERPROFILE%\.codex\auth.json` 存在（执行过 `codex login`） |
 | 凭证能在容器内使用 | `bash sandbox/scripts/verify-creds.sh`，两边都回复 `pong` |
@@ -19,7 +19,7 @@ cd backend
 ```
 
 - 端口 **8090**（8080 常被本机其他 Java 项目占用）
-- 启动约 15 秒后，`docker ps` 能看到 2 个 `playforge-sandbox:p3` 容器（预热池），它们带有标签 `playforge.pool=app`
+- 启动约 15 秒后，`docker ps` 能看到 2 个 `playforge-sandbox:p4` 容器（预热池），它们带有标签 `playforge.pool=app`
 - 不加 `real` profile 时使用演示引擎和本地目录，不需要 Docker
 
 ## 使用

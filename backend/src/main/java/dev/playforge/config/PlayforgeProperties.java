@@ -12,12 +12,35 @@ import java.time.Duration;
  */
 @ConfigurationProperties("playforge")
 public record PlayforgeProperties(String workspaceRoot, Orchestration orchestration, Engines engines,
-                                  SandboxConfig sandbox, String previewRoot, String webRoot) {
+                                  SandboxConfig sandbox, String previewRoot, String webRoot, Playtest playtest) {
 
     public record Orchestration(int maxReviewRounds, int maxPlaytestFixes, Duration stepTimeout,
                                 Duration runTimeout, int maxEngineRetries, Duration retryBaseDelay) {}
 
-    public record Engines(String coder, String reviewer) {}
+    /** Engine names per role; the player and the judge default to the coder engine. */
+    public record Engines(String coder, String reviewer, String player, String judge) {
+        public String playerOrCoder() {
+            return player == null || player.isBlank() ? coder : player;
+        }
+
+        public String judgeOrCoder() {
+            return judge == null || judge.isBlank() ? coder : judge;
+        }
+    }
+
+    /**
+     * @param aiPlay after the hard checks, an AI player writes and the harness runs a playthrough of the game
+     * @param judge  a model scores screenshots of the playthrough (report only)
+     */
+    public record Playtest(Boolean aiPlay, Boolean judge) {}
+
+    public boolean aiPlayEnabled() {
+        return playtest == null || playtest.aiPlay() == null || playtest.aiPlay();
+    }
+
+    public boolean judgeEnabled() {
+        return playtest == null || playtest.judge() == null || playtest.judge();
+    }
 
     /**
      * @param provider       {@code local} (host directory, demo engines) or {@code docker}

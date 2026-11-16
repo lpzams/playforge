@@ -1,8 +1,8 @@
-# PlayForge sandbox (p3): one container per run.
+# PlayForge sandbox (p4): one container per run.
 # - Claude Code CLI (coder) and Codex CLI (reviewer), run as the non-root user "node"
 #   (Claude Code refuses --dangerously-skip-permissions as root)
 # - /template: Vite game starter with the probe SDK, dependencies preinstalled (works offline)
-# - /opt/playtest: Playwright + Chromium playtest harness (run.mjs)
+# - /opt/playtest: Playwright + Chromium playtest harnesses (run.mjs hard checks, play.mjs AI playthrough)
 FROM node:22-bookworm-slim
 
 ARG NPM_REGISTRY=https://registry.npmjs.org/

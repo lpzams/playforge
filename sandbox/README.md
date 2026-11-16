@@ -5,9 +5,9 @@
 ## 构建
 
 ```bash
-docker build -t playforge-sandbox:p3 sandbox
+docker build -t playforge-sandbox:p4 sandbox
 # 国内网络慢时可换 npm 源：
-docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com/ -t playforge-sandbox:p3 sandbox
+docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com/ -t playforge-sandbox:p4 sandbox
 ```
 
 ## 凭证

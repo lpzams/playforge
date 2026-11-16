@@ -27,7 +27,7 @@ playforge:
     reviewer: demo
   sandbox:
     provider: local
-    image: playforge-sandbox:p3
+    image: playforge-sandbox:p4
     pool-size: 2
     acquire-timeout: 60s
     codex-auth-file: ${USERPROFILE:${user.home}}/.codex/auth.json
