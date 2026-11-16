@@ -78,6 +78,7 @@ class PreviewControllerTest {
         assertThat(r.getResponse().getContentType()).startsWith("text/html");
         assertThat(html).contains("<script defer src=\"/hidpi.js\"></script>");
         assertThat(html.indexOf("/hidpi.js")).isLessThan(html.indexOf("type=\"module\""));
+        assertThat(html).contains("<script defer src=\"/bridge.js\"></script>");
         assertThat(html).contains("<canvas></canvas>");
     }
 

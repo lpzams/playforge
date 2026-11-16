@@ -37,7 +37,7 @@ function submit() {
 function clear() {
   text.value = '';
 }
-defineExpose({ clear });
+defineExpose({ clear, focus: () => box.value?.focus() });
 </script>
 
 <template>

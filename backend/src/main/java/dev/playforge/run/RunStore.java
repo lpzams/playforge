@@ -46,7 +46,12 @@ public class RunStore {
     }
 
     public Run createRun(String projectId, String instruction) {
+        return createRun(projectId, instruction, null);
+    }
+
+    public Run createRun(String projectId, String instruction, Markup markup) {
         Run r = new Run();
+        r.setMarkup(markup == null ? null : markup.toJson());
         r.setProjectId(projectId);
         r.setInstruction(instruction);
         r.setStatus(RunStatus.QUEUED);

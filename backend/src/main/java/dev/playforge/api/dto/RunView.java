@@ -1,5 +1,6 @@
 package dev.playforge.api.dto;
 
+import dev.playforge.run.Markup;
 import dev.playforge.run.Run;
 import dev.playforge.run.RunStatus;
 import dev.playforge.run.Step;
@@ -12,7 +13,7 @@ import java.util.List;
 
 public record RunView(long id, String projectId, String instruction, RunStatus status, String error,
                       String baseCommit, String resultCommit, Instant createdAt, Instant startedAt,
-                      Instant finishedAt, List<StepView> steps) {
+                      Instant finishedAt, List<StepView> steps, Markup markup) {
 
     public record StepView(long id, StepType type, int round, StepTrigger trigger, StepStatus status, Boolean ok) {
         public static StepView of(Step s) {
@@ -23,6 +24,6 @@ public record RunView(long id, String projectId, String instruction, RunStatus s
     public static RunView of(Run r, List<Step> steps) {
         return new RunView(r.getId(), r.getProjectId(), r.getInstruction(), r.getStatus(), r.getError(),
                 r.getBaseCommit(), r.getResultCommit(), r.getCreatedAt(), r.getStartedAt(), r.getFinishedAt(),
-                steps.stream().map(StepView::of).toList());
+                steps.stream().map(StepView::of).toList(), Markup.fromJson(r.getMarkup()));
     }
 }

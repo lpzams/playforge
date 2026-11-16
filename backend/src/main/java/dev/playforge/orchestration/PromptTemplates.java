@@ -2,6 +2,7 @@ package dev.playforge.orchestration;
 
 import dev.playforge.playtest.AiPlayResult;
 import dev.playforge.review.ReviewIssue;
+import dev.playforge.run.Markup;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -48,6 +49,31 @@ public final class PromptTemplates {
                 %s
                 Implement the request completely in the current directory.
                 """.formatted(instruction, GAME_RULES);
+    }
+
+    /**
+     * Appended to coder prompts of a request with marked areas.
+     * @param imagePath where the marked screenshot is in the sandbox, or null when it could not be provided
+     */
+    public static String markup(Markup m, String imagePath) {
+        StringBuilder sb = new StringBuilder("""
+
+                The player pointed at areas of the running game. Canvas: %d×%d px, the coordinate space of the
+                game code (x to the right, y down from the top-left corner).
+                """.formatted(m.canvas().width(), m.canvas().height()));
+        for (int i = 0; i < m.boxes().size(); i++) {
+            int[] p = m.boxes().get(i).pixels(m.canvas());
+            sb.append("- Box %d: x %d–%d, y %d–%d%n".formatted(i + 1, p[0], p[2], p[1], p[3]));
+        }
+        sb.append(imagePath != null
+                ? """
+                  A screenshot with these numbered red boxes is at %s (it may be scaled up from the canvas size).
+                  Open it with the Read tool before changing anything. The request may refer to a box by its
+                  number (for example "框 1" or "1"). The red boxes are annotations, not part of the game.
+                  """.formatted(imagePath)
+                : "The screenshot could not be provided; rely on the coordinates.\n");
+        sb.append("Change what the request asks for in and around these areas; keep the rest of the game as it is.\n");
+        return sb.toString();
     }
 
     public static String fixFromReview(String instruction, List<ReviewIssue> blockers) {

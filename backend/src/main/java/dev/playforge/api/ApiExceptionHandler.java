@@ -25,6 +25,11 @@ public class ApiExceptionHandler {
         return error(HttpStatus.CONFLICT, e.getMessage());
     }
 
+    @ExceptionHandler(BadRequestException.class)
+    ResponseEntity<Map<String, String>> badRequest(BadRequestException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<Map<String, String>> invalid(MethodArgumentNotValidException e) {
         String msg = e.getBindingResult().getFieldErrors().stream()

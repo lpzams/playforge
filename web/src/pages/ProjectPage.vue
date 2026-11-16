@@ -7,6 +7,8 @@ import { duration } from '../story/story';
 import Composer from '../components/Composer.vue';
 import GameStage from '../components/GameStage.vue';
 import RunStory from '../components/RunStory.vue';
+import MarkupLayer from '../components/MarkupLayer.vue';
+import { annotate, MAX_BOXES, type Box, type Snapshot } from '../markup/markup';
 
 const props = defineProps<{ id: string }>();
 
@@ -87,11 +89,41 @@ watch(() => active.value && selectedRunId.value !== latest.value?.id, (needed) =
   poll = needed ? setInterval(() => void load(), POLL_MS) : null;
 });
 
+// Circle to edit: a frozen snapshot of the game over the stage, with the boxes the player drew on it.
+const marking = ref<Snapshot | null>(null);
+const boxes = ref<Box[]>([]);
+const capturing = ref(false);
+
+async function startMarking() {
+  if (!stage.value) return;
+  capturing.value = true;
+  error.value = '';
+  try {
+    marking.value = await stage.value.capture();
+    boxes.value = [];
+    composer.value?.focus();
+  } catch {
+    error.value = '这个游戏的画面截取不到（比如 3D 画布），可以直接用文字描述要改的地方。';
+  } finally {
+    capturing.value = false;
+  }
+}
+
+function stopMarking() {
+  marking.value = null;
+  boxes.value = [];
+}
+
 async function followUp(text: string) {
   submitting.value = true;
   try {
-    const created = await api.createRun(props.id, text);
+    const shot = marking.value;
+    const markup = shot && boxes.value.length
+      ? { image: await annotate(shot.image, boxes.value), canvas: { width: shot.width, height: shot.height }, boxes: boxes.value }
+      : undefined;
+    const created = await api.createRun(props.id, text, markup);
     composer.value?.clear();
+    stopMarking();
     await load();
     selectedRunId.value = created.runId;
   } catch (e) {
@@ -122,7 +154,13 @@ onUnmounted(() => {
   <div v-if="project" class="project">
     <GameStage ref="stage" :project-id="project.id" :available="project.previewAvailable" :version="previewVersion" :title="name">
       <p v-if="active" class="muted">正在生成，完成后会自动出现</p>
+      <template v-if="marking" #overlay>
+        <MarkupLayer v-model="boxes" :image="marking.image" :width="marking.width" :height="marking.height" />
+      </template>
     </GameStage>
+    <p v-if="marking" class="mark-hint" data-test="markup-hint">
+      在画面上拖动，框出要改的地方（最多 {{ MAX_BOXES }} 处），再在下面说怎么改，可以说“框 1”。
+    </p>
 
     <header class="game-head">
       <div class="title-block">
@@ -130,7 +168,16 @@ onUnmounted(() => {
         <div class="meta">{{ meta }}</div>
       </div>
       <div v-if="project.previewAvailable" class="actions">
-        <button type="button" class="pill plain" @click="stage?.reload()">重新开始</button>
+        <button v-if="marking" type="button" class="pill plain" data-test="markup-stop" @click="stopMarking">退出圈选</button>
+        <button
+          v-else-if="!active"
+          type="button"
+          class="pill plain"
+          data-test="markup-start"
+          :disabled="capturing"
+          @click="startMarking"
+        >圈选修改</button>
+        <button type="button" class="pill plain" :disabled="!!marking" @click="stage?.reload()">重新开始</button>
         <button type="button" class="pill plain" @click="stage?.fullscreen()">全屏</button>
         <a class="pill tonal" :href="`/preview/${project.id}/`" target="_blank" rel="noopener">新窗口</a>
       </div>
@@ -144,9 +191,14 @@ onUnmounted(() => {
         test-id="follow-up"
         :disabled="active"
         :submitting="submitting"
-        :placeholder="active ? '正在生成中，完成后可以继续修改' : '继续修改，例如：速度再快一点、加一个最高分记录（Ctrl + Enter 发送）'"
+        :placeholder="active ? '正在生成中，完成后可以继续修改'
+          : marking ? '说说框里要怎么改，例如：框 1 的分数放大一点（Ctrl + Enter 发送）'
+          : '继续修改，例如：速度再快一点、加一个最高分记录（Ctrl + Enter 发送）'"
         @submit="followUp"
       >
+        <template v-if="marking" #left>
+          <span class="marked-count" data-test="markup-count">{{ boxes.length ? `已圈 ${boxes.length} 处` : '还没有圈选，发送时只带文字' }}</span>
+        </template>
         <template v-if="active" #right>
           <span class="live">正在生成{{ latest ? versionLabel(latest) : '' }}…</span>
           <button type="button" class="pill plain" data-test="cancel" @click="cancel">取消</button>
@@ -177,6 +229,7 @@ onUnmounted(() => {
         :instruction="selected.instruction"
         :label="runs.indexOf(selected) === 0 ? '一句话需求' : `修改需求（${versionLabel(selected)}）`"
         :follow-up="runs.indexOf(selected) > 0"
+        :markup-image="selected.markup ? api.markupImageUrl(selected.id) : null"
         :preview-base="selected.id === previewRunId ? `/preview/${project.id}/` : null"
       />
     </section>
@@ -195,6 +248,8 @@ onUnmounted(() => {
 .follow, .story, .project > .error-text { max-width: 1100px; margin-left: auto; margin-right: auto; }
 .follow { margin-top: 20px; }
 .live { color: var(--accent); font-size: 14px; white-space: nowrap; }
+.mark-hint { max-width: 1100px; margin: 12px auto 0; font-size: 14px; color: var(--text-2); text-align: center; }
+.marked-count { font-size: 13.5px; color: var(--muted); }
 .story { margin-top: 40px; }
 .story-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
 .story-head h2 { font-size: 20px; margin: 0; }

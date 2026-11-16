@@ -21,4 +21,6 @@ public class Run {
     private Instant createdAt;
     private Instant startedAt;
     private Instant finishedAt;
+    /** {@link Markup} as JSON; null for a plain text request. */
+    private String markup;
 }
