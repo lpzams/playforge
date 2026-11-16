@@ -79,4 +79,43 @@ describe('EventFeed', () => {
     expect(w.text()).toContain('Bash');
     expect(w.find('[data-test="tool-error"]').exists()).toBe(true);
   });
+
+  it('shows what the AI player checked, and a waived round', () => {
+    const w = render([ev('PLAYTEST_RESULT', {
+      passed: true, failures: [], checks: [{ name: 'load', passed: true, detail: '' }],
+      aiPlay: {
+        ran: true, inconclusive: false, waived: true, error: null, log: [],
+        assertions: [{ message: 'snake grows after eating', passed: true }, { message: 'score is shown', passed: false }],
+        shots: [{ file: 'playtest/01-start.png', label: 'start' }],
+      },
+    })]);
+
+    const asserts = w.findAll('[data-test="ai-assertion"]');
+    expect(asserts).toHaveLength(2);
+    expect(asserts[1].text()).toContain('score is shown');
+    expect(w.text()).toContain('AI 实玩');
+    expect(w.text()).toContain('修复轮数已用完');
+    w.unmount();
+  });
+
+  it('says why AI play was skipped or inconclusive', () => {
+    const w = render([
+      ev('PLAYTEST_RESULT', { passed: true, failures: [], checks: [], aiPlay: { skipped: 'player failed: timeout' } }),
+      ev('PLAYTEST_RESULT', { passed: true, failures: [], checks: [], aiPlay: { ran: false, inconclusive: true, error: 't.jump is not a function', assertions: [], shots: [], log: [] } }),
+    ]);
+    expect(w.text()).toContain('player failed: timeout');
+    expect(w.text()).toContain('t.jump is not a function');
+    w.unmount();
+  });
+
+  it('shows the fun score as plain text', () => {
+    const w = render([ev('FUN_SCORE', {
+      scores: { fit: 4, difficulty: 3, visuals: 2, feedback: 5 }, summary: '<b>能玩</b>', suggestions: ['加音效'], shots: [],
+    })]);
+    expect(w.find('[data-test="fun-score"]').text()).toContain('契合度 4');
+    expect(w.text()).toContain('<b>能玩</b>');
+    expect(w.find('b').exists()).toBe(false);
+    expect(w.text()).toContain('加音效');
+    w.unmount();
+  });
 });

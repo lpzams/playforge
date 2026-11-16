@@ -36,6 +36,18 @@ function stepTitle(e: RunEvent) {
 const issues = (e: RunEvent) => (Array.isArray(p(e, 'issues')) ? (p(e, 'issues') as ReviewIssue[]) : []);
 const checks = (e: RunEvent) => (Array.isArray(p(e, 'checks')) ? (p(e, 'checks') as Check[]) : []);
 const failures = (e: RunEvent) => (Array.isArray(p(e, 'failures')) ? (p(e, 'failures') as unknown[]).map(str) : []);
+
+interface AiPlay { skipped?: string; inconclusive?: boolean; waived?: boolean; error?: string | null; assertions?: { message: string; passed: boolean }[] }
+const aiPlay = (e: RunEvent) => (p(e, 'aiPlay') && typeof p(e, 'aiPlay') === 'object' ? (p(e, 'aiPlay') as AiPlay) : null);
+const aiOf = (e: RunEvent): AiPlay => aiPlay(e) ?? {};
+const aiAssertions = (e: RunEvent) => (Array.isArray(aiOf(e).assertions) ? aiOf(e).assertions ?? [] : []);
+
+const SCORE_NAMES: Record<string, string> = { fit: '契合度', difficulty: '难度', visuals: '画面', feedback: '反馈感' };
+function scoreLine(e: RunEvent) {
+  const scores = (p(e, 'scores') ?? {}) as Record<string, number>;
+  return Object.keys(SCORE_NAMES).filter((k) => k in scores).map((k) => `${SCORE_NAMES[k]} ${scores[k]}`).join(' · ');
+}
+const suggestions = (e: RunEvent) => (Array.isArray(p(e, 'suggestions')) ? (p(e, 'suggestions') as unknown[]).map(str) : []);
 </script>
 
 <template>
@@ -76,6 +88,28 @@ const failures = (e: RunEvent) => (Array.isArray(p(e, 'failures')) ? (p(e, 'fail
         </div>
         <PlaytestChecklist v-if="checks(e).length" :checks="checks(e)" />
         <div v-else-if="failures(e).length" class="plain-text err">{{ failures(e).join('\n') }}</div>
+        <div v-if="aiPlay(e)" class="ai-play">
+          <div class="block-title">AI 实玩一局</div>
+          <div v-if="aiOf(e).skipped" class="muted plain-text">未进行：{{ str(aiOf(e).skipped) }}</div>
+          <div v-else-if="aiOf(e).inconclusive" class="muted plain-text">
+            试玩脚本没能给出结论，不影响结果{{ aiOf(e).error ? '：' + str(aiOf(e).error) : '' }}
+          </div>
+          <ul v-if="aiAssertions(e).length" class="checks">
+            <li v-for="(a, i) in aiAssertions(e)" :key="i" data-test="ai-assertion" :class="a.passed ? 'ok' : 'err'">
+              <span class="mark">{{ a.passed ? '✓' : '✗' }}</span><span class="plain-text">{{ a.message }}</span>
+            </li>
+          </ul>
+          <div v-if="aiOf(e).waived" class="muted">修复轮数已用完，以硬性检查结果为准放行</div>
+        </div>
+      </div>
+
+      <div v-else-if="e.type === 'FUN_SCORE'" class="item block" data-test="fun-score">
+        <div class="block-title">好玩度评分（仅供参考）</div>
+        <div>{{ scoreLine(e) }}</div>
+        <div v-if="p(e, 'summary')" class="plain-text">{{ str(p(e, 'summary')) }}</div>
+        <ul v-if="suggestions(e).length" class="suggestions">
+          <li v-for="(s, i) in suggestions(e)" :key="i" class="plain-text">{{ s }}</li>
+        </ul>
       </div>
 
       <div v-else-if="e.type === 'USAGE'" class="item line muted small" data-test="event">
