@@ -65,6 +65,26 @@ describe('ProjectPage', () => {
     expect(w.text()).toContain('我先写游戏循环');
   });
 
+  it('while an older version is shown, a newer running one is polled and the game reloads when it finishes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let status: RunStatus = 'RUNNING';
+      stubApi([['GET', /\/api\/projects\/abcdefghijkl$/, () => json(project([run(5, 'SUCCEEDED'), run(6, status)], true))]]);
+      const w = await mountPage();
+      await w.findAll('[data-test="run"]')[0].trigger('click');
+      await flushPromises();
+      const before = w.find('iframe').attributes('src');
+
+      status = 'SUCCEEDED';
+      await vi.advanceTimersByTimeAsync(4500);
+      await flushPromises();
+      expect(w.find('iframe').attributes('src')).not.toBe(before);
+      expect(w.find('[data-test="cancel"]').exists()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('switches between versions', async () => {
     stubApi([['GET', /\/api\/projects\/abcdefghijkl$/, () => json(project([run(5, 'SUCCEEDED'), run(6, 'FAILED', '加个最高分')], true))]]);
     const w = await mountPage();

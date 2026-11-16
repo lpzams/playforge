@@ -66,7 +66,8 @@ for (const p of projects.sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
   const shotDir = path.join(play, 'playtest');
   if (fs.existsSync(shotDir)) {
     const shots = fs.readdirSync(shotDir).filter((f) => f.endsWith('.png')).sort();
-    const midGame = shots.find((f) => !/-(start|end|gameover|game-over|restart|restarted)\.png$/.test(f));
+    // Same rule as play.mjs: not the automatic start/end shots, nothing about game over or restarting.
+    const midGame = shots.find((f) => !/-(start|end)\.png$/.test(f) && !/over|restart/i.test(f));
     if (midGame) fs.copyFileSync(path.join(shotDir, midGame), path.join(play, 'cover.png'));
   }
   // Load the hi-DPI shim (site/hidpi.js) before the game so its small canvas renders sharply when scaled up.

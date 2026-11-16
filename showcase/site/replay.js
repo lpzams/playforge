@@ -54,6 +54,9 @@ function resultNote(summary, isError) {
 /** Flattens the runs into timed beats on a compressed clock. Each beat has a start time and an animation length. */
 function buildBeats(game) {
   const beats = [];
+  // Only the build's last playthrough has its screenshots on disk (earlier rounds were overwritten).
+  const lastRun = game.runs[game.runs.length - 1];
+  const lastPlaytestResult = lastRun ? [...lastRun.events].reverse().find((e) => e.type === 'PLAYTEST_RESULT') : null;
   let t = 0;
   let prevTs = null;
   let prevEnd = 0;
@@ -119,7 +122,7 @@ function buildBeats(game) {
           push('review', { issues: p.issues || [] }, e.ts, typing('x'.repeat(n), TYPE_TEXT * 2, 5000));
         } else if (e.type === 'PLAYTEST_RESULT') {
           const ai = p.aiPlay && !p.aiPlay.skipped ? (p.aiPlay.assertions || []).length : 0;
-          push('playtest', p, e.ts, ((p.checks || []).length / 4) * 1000 + 300 + ai * 350 + (ai ? 800 : 0));
+          push('playtest', { ...p, showShots: e === lastPlaytestResult }, e.ts, ((p.checks || []).length / 4) * 1000 + 300 + ai * 350 + (ai ? 800 : 0));
           judging = true;
         } else if (e.type === 'FUN_SCORE') {
           push('fun', p, e.ts, typing(p.summary || '', TYPE_TEXT, 4000));
@@ -243,7 +246,7 @@ function setupReplay(game, restoreStatic) {
             const ul = add(el('ul', { class: 'ai-checks' }, ...asserts.map((a) => el('li', { class: a.passed ? '' : 'fail' }, a.message))));
             animate(ul, 'lines', asserts.length, { t: hardEnd + 400, dur: asserts.length * 350 });
           }
-          const shots = (ai.shots || []).filter((s) => s.file);
+          const shots = d.showShots ? (ai.shots || []).filter((s) => s.file) : [];
           if (shots.length) {
             const strip = add(el('div', { class: 'shots' }, ...shots.map((s) => el('figure', {},
               el('img', { src: `games/${game.id}/play/${s.file}`, alt: s.label }), el('figcaption', {}, s.label)))));

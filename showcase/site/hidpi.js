@@ -14,9 +14,21 @@
   const state = new WeakMap(); // canvas -> { w, h, s, ctx }
 
   const apply = (c, st) => {
+    // Resizing the backing store clears it. Keep the current frame, so games that only redraw on input
+    // (turn-based, paused) don't go blank when the window is resized.
+    let snapshot = null;
+    if (st.ctx && W.get.call(c) > 0 && H.get.call(c) > 0) {
+      snapshot = document.createElement('canvas');
+      W.set.call(snapshot, W.get.call(c));
+      H.set.call(snapshot, H.get.call(c));
+      getContext.call(snapshot, '2d').drawImage(c, 0, 0);
+    }
     W.set.call(c, Math.round(st.w * st.s));
     H.set.call(c, Math.round(st.h * st.s));
-    if (st.ctx) setTransform.call(st.ctx, st.s, 0, 0, st.s, 0, 0);
+    if (st.ctx) {
+      if (snapshot) st.ctx.drawImage(snapshot, 0, 0, W.get.call(c), H.get.call(c));
+      setTransform.call(st.ctx, st.s, 0, 0, st.s, 0, 0);
+    }
   };
 
   const fit = (c) => {

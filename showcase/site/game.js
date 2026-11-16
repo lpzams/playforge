@@ -12,7 +12,7 @@ const ACTORS = {
 };
 
 /** One sentence (plus details) per step, in plain language. */
-function entry(seg, reviewNo) {
+function entry(seg, reviewNo, showShots = false) {
   const [name, cls, mono] = ACTORS[seg.type] || [seg.type, '', '·'];
   const body = [];
   const said = (text, bad = false) => body.push(el('p', { class: `entry-text${bad ? ' bad' : ''}` }, text));
@@ -47,7 +47,7 @@ function entry(seg, reviewNo) {
       for (const c of failedChecks) ul.append(el('li', {}, failText(c), c.detail ? el('span', {}, `（${checkName(c.name)}：${c.detail}）`) : null));
       body.push(ul);
     }
-    body.push(...aiPlayBlock(seg));
+    body.push(...aiPlayBlock(seg, showShots));
   } else if (seg.type === 'COMMIT') {
     said('提交代码，游戏上线。');
   }
@@ -60,7 +60,8 @@ function entry(seg, reviewNo) {
 }
 
 /** What the AI player checked in its own round, with its screenshots (inside a playtest entry). */
-function aiPlayBlock(seg) {
+/** @param showShots only the build's last playthrough has its screenshots on disk (earlier rounds were overwritten) */
+function aiPlayBlock(seg, showShots) {
   const { ai } = playOf(seg);
   if (!ai || ai.skipped) return [];
   const out = [];
@@ -75,7 +76,7 @@ function aiPlayBlock(seg) {
         : `AI 试玩员又亲自玩了一局，${asserts.length} 项检查全部通过：`));
     out.push(el('ul', { class: 'ai-checks' }, ...asserts.map((a) => el('li', { class: a.passed ? '' : 'fail' }, a.message))));
   }
-  const shots = (ai.shots || []).filter((s) => s.file);
+  const shots = showShots ? (ai.shots || []).filter((s) => s.file) : [];
   if (shots.length) {
     out.push(el('div', { class: 'shots' }, ...shots.map((s) => el('figure', {},
       el('img', { src: `games/${currentGame.id}/play/${s.file}`, alt: s.label, loading: 'lazy' }),
@@ -101,9 +102,11 @@ function story(game) {
   const items = [];
   for (const run of game.runs) {
     let reviews = 0;
-    for (const seg of segments(run)) {
+    const segs = segments(run);
+    const lastPlaytest = run === game.runs[game.runs.length - 1] ? segs.filter((s) => s.type === 'PLAYTEST').pop() : null;
+    for (const seg of segs) {
       if (seg.type === 'REVIEW') reviews++;
-      items.push(entry(seg, reviews));
+      items.push(entry(seg, reviews, seg === lastPlaytest));
       if (seg.type === 'PLAYTEST') {
         const j = judgeEntry(seg);
         if (j) items.push(j);

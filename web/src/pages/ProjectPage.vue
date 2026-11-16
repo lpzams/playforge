@@ -42,15 +42,21 @@ const meta = computed(() => {
   return parts.join(' · ');
 });
 
+let loads = 0;
+
+/** Loads are fired by many events; only the newest response may land (an older one could show a stale status). */
 async function load() {
+  const mine = ++loads;
   try {
-    project.value = await api.getProject(props.id);
+    const p = await api.getProject(props.id);
+    if (mine !== loads) return;
+    project.value = p;
     error.value = '';
     if (selectedRunId.value == null || !runs.value.some((r) => r.id === selectedRunId.value)) {
       selectedRunId.value = latest.value?.id ?? null;
     }
   } catch (e) {
-    error.value = (e as Error).message;
+    if (mine === loads) error.value = (e as Error).message;
   }
 }
 
@@ -60,17 +66,26 @@ function follow(runId: number | null) {
   stream = null;
   events.value = [];
   if (runId == null) return;
-  // Reload the game only when a version finishes while we watch, not when an old one's history replays.
-  const live = isActive(runs.value.find((r) => r.id === runId)?.status ?? 'SUCCEEDED');
   stream = openRunStream(runId, (e) => {
     events.value.push(e);
     if (e.type === 'STEP_FINISHED' || e.type === 'RUN_FINISHED') void load();
-  }, () => {
-    if (live) previewVersion.value++;
-  });
+  }, () => {});
 }
 
 watch(selectedRunId, (id) => follow(id));
+
+// The game reloads when the newest version finishes, whichever version is being looked at.
+watch(() => latest.value, (now, before) => {
+  if (now && before && now.id === before.id && isActive(before.status) && !isActive(now.status)) previewVersion.value++;
+});
+
+// Looking at an older version while a new one generates: its stream has ended, so poll the project instead.
+const POLL_MS = 4000;
+let poll: ReturnType<typeof setInterval> | null = null;
+watch(() => active.value && selectedRunId.value !== latest.value?.id, (needed) => {
+  if (poll) clearInterval(poll);
+  poll = needed ? setInterval(() => void load(), POLL_MS) : null;
+});
 
 async function followUp(text: string) {
   submitting.value = true;
@@ -97,7 +112,10 @@ async function cancel() {
 }
 
 onMounted(load);
-onUnmounted(() => stream?.close());
+onUnmounted(() => {
+  stream?.close();
+  if (poll) clearInterval(poll);
+});
 </script>
 
 <template>

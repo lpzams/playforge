@@ -70,13 +70,13 @@ export function failText(c: Check) {
 export const scoreLine = (scores: Record<string, number> | undefined) =>
   Object.keys(SCORE_NAMES).filter((k) => scores && k in scores).map((k) => `${SCORE_NAMES[k]} ${scores![k]}`).join(' · ');
 
-interface Segment { type: string; trigger: string; start: number; events: RunEvent[] }
+interface Segment { type: string; trigger: string; start: number; resume: boolean; events: RunEvent[] }
 
 function segmentsOf(events: RunEvent[]): Segment[] {
   const out: Segment[] = [];
   for (const e of events) {
     if (e.type === 'STEP_STARTED') {
-      out.push({ type: String(e.payload.type), trigger: String(e.payload.trigger ?? 'NONE'), start: Date.parse(e.ts), events: [] });
+      out.push({ type: String(e.payload.type), trigger: String(e.payload.trigger ?? 'NONE'), start: Date.parse(e.ts), resume: e.payload.resume === true, events: [] });
     } else if (out.length) {
       out[out.length - 1].events.push(e);
     }
@@ -98,15 +98,20 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
   const entries: Entry[] = [];
   let reviews = 0;
   let note: string | null = null;
+  // The screenshots on disk are those of the build's last playthrough; earlier rounds were overwritten.
+  const lastPlaytest = segs.map((x) => x.type).lastIndexOf('PLAYTEST');
 
   segs.forEach((seg, i) => {
     const [actor, cls, mono, doing] = ACTORS[seg.type] ?? [seg.type, '', '·', '进行中…'];
     const failedStep = seg.events.find((e) => e.type === 'STEP_FINISHED' && e.payload.status === 'FAILED');
     const stepDone = seg.events.some((e) => e.type === 'STEP_FINISHED');
     const running = i === segs.length - 1 && !finished && !stepDone;
-    const cutShort = i === segs.length - 1 && finished === 'CANCELLED' && !stepDone;
+    const cutShort = (i === segs.length - 1 && finished === 'CANCELLED' && !stepDone)
+      || failedStep?.payload.error === 'cancelled';
     // A playtest reports before its step ends (the judge is still looking): show results as soon as they exist.
     const hasResult = seg.events.some((e) => e.type === 'REVIEW_RESULT' || e.type === 'PLAYTEST_RESULT');
+    // The step was cut off by a restart and resumed: the next segment is the same step starting again.
+    const interrupted = i + 1 < segs.length && segs[i + 1].resume && !stepDone;
     const end = i + 1 < segs.length ? segs[i + 1].start
       : Date.parse((finishedEvent ?? seg.events[seg.events.length - 1] ?? { ts: new Date(seg.start).toISOString() }).ts);
     const entry: Entry = {
@@ -120,11 +125,13 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
       for (const e of seg.events) if (e.type === 'AGENT_TEXT' && e.source === 'claude') note = String(e.payload.text ?? '');
     }
 
-    if (failedStep) {
+    if (cutShort) {
+      say('被取消，没有完成。');
+    } else if (failedStep) {
       entry.bad = true;
       say(`这一步失败了：${String(failedStep.payload.error ?? '')}`);
-    } else if (cutShort) {
-      say('被取消，没有完成。');
+    } else if (interrupted) {
+      say('中断后从这里重新开始。');
     } else if (running && !hasResult) {
       say(doing);
     } else if (seg.type === 'CODE') {
@@ -154,7 +161,7 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
         say(`在浏览器里试玩了一遍，${checks.length} 项硬性检查全部通过。`);
         entry.checks = checks.map((c) => checkName(c.name)).join(' · ');
       }
-      entry.ai = aiBlock(result?.aiPlay as Record<string, unknown> | undefined, opts.previewBase);
+      entry.ai = aiBlock(result?.aiPlay as Record<string, unknown> | undefined, i === lastPlaytest ? opts.previewBase : null);
       if (entry.ai?.bad) entry.bad = true;
     } else if (seg.type === 'COMMIT') {
       const commit = finishedEvent?.payload.commit as string | undefined;

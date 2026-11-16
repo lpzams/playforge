@@ -127,6 +127,28 @@ describe('story', () => {
     expect(s.reason).toBe('你取消了这一版，游戏保持上一版不变。');
   });
 
+  it('a cancelled step closed in the log, and a step interrupted by a restart, are not told as done', () => {
+    const s = buildStory([
+      step('REVIEW', 0), ev('STEP_STARTED', { type: 'REVIEW', trigger: 'NONE', round: 0, resume: true }, 5), // interrupted by a restart, resumed
+      ev('STEP_FINISHED', { status: 'FAILED', error: 'cancelled' }, 9),
+      ev('RUN_FINISHED', { status: 'CANCELLED', reason: 'cancelled' }, 9),
+    ], { previewBase: null });
+    expect(s.entries[0].lines).toEqual(['中断后从这里重新开始。']);
+    expect(s.entries[1].lines).toEqual(['被取消，没有完成。']);
+    expect(s.entries[1].bad).toBeFalsy();
+  });
+
+  it('screenshots belong to the last playtest of the build only', () => {
+    const shotsOf = { ran: true, assertions: [{ message: 'x', passed: true }], shots: [{ file: 'playtest/01-start.png', label: 'start' }] };
+    const s = buildStory([
+      step('PLAYTEST', 0), ev('PLAYTEST_RESULT', { passed: false, checks: [], aiPlay: { ...shotsOf, assertions: [{ message: 'x', passed: false }] } }, 5),
+      step('FIX', 5, 'PLAYTEST'),
+      step('PLAYTEST', 10), ev('PLAYTEST_RESULT', { passed: true, checks: [], aiPlay: shotsOf }, 15),
+    ], { previewBase: '/preview/p/' });
+    expect(s.entries[0].ai!.shots).toEqual([]);
+    expect(s.entries[2].ai!.shots).toHaveLength(1);
+  });
+
   it('a follow-up version changes the code instead of writing a first version', () => {
     const s = buildStory([step('CODE', 0), ev('FILE_CHANGED', { path: 'src/a.js' }, 4, 'claude'), step('REVIEW', 10)],
       { previewBase: null, followUp: true });
