@@ -62,6 +62,13 @@ for (const p of projects.sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
   }
   const play = path.join(site, 'games', p.id, 'play');
   fs.cpSync(path.join(repo, 'previews', p.id), play, { recursive: true });
+  // Cover: a mid-game screenshot from the AI player's round beats the harness's first frame (usually a start screen).
+  const shotDir = path.join(play, 'playtest');
+  if (fs.existsSync(shotDir)) {
+    const shots = fs.readdirSync(shotDir).filter((f) => f.endsWith('.png')).sort();
+    const midGame = shots.find((f) => !/-(start|end|gameover|game-over|restart|restarted)\.png$/.test(f));
+    if (midGame) fs.copyFileSync(path.join(shotDir, midGame), path.join(play, 'cover.png'));
+  }
   // Load the hi-DPI shim (site/hidpi.js) before the game so its small canvas renders sharply when scaled up.
   const html = path.join(play, 'index.html');
   fs.writeFileSync(html, fs.readFileSync(html, 'utf8').replace(/(\s*)(<script type="module")/,
