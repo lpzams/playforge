@@ -158,6 +158,7 @@ onUnmounted(() => stream?.close());
         :events="events"
         :instruction="selected.instruction"
         :label="runs.indexOf(selected) === 0 ? '一句话需求' : `修改需求（${versionLabel(selected)}）`"
+        :follow-up="runs.indexOf(selected) > 0"
         :preview-base="selected.id === previewRunId ? `/preview/${project.id}/` : null"
       />
     </section>

@@ -120,6 +120,19 @@ describe('story', () => {
     expect(cancelled.finished).toBe('CANCELLED');
   });
 
+  it('a step cut short by cancelling is not told as done', () => {
+    const s = buildStory([step('CODE', 0), ev('FILE_CHANGED', { path: 'src/a.js' }, 4, 'claude'),
+      ev('RUN_FINISHED', { status: 'CANCELLED', reason: 'cancelled' }, 10)], { previewBase: null, followUp: true });
+    expect(s.entries[0].lines).toEqual(['被取消，没有完成。']);
+    expect(s.reason).toBe('你取消了这一版，游戏保持上一版不变。');
+  });
+
+  it('a follow-up version changes the code instead of writing a first version', () => {
+    const s = buildStory([step('CODE', 0), ev('FILE_CHANGED', { path: 'src/a.js' }, 4, 'claude'), step('REVIEW', 10)],
+      { previewBase: null, followUp: true });
+    expect(s.entries[0].lines[0]).toBe('按修改需求改好了代码，改动 1 个文件。');
+  });
+
   it('keeps the coder note, not the player or judge replies', () => {
     const s = buildStory([
       step('CODE', 0), ev('AGENT_TEXT', { text: '第一版说明' }, 5, 'claude'),

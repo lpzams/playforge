@@ -87,10 +87,11 @@ function segmentsOf(events: RunEvent[]): Segment[] {
 const arr = <T>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
 
 /**
+ * @param opts.followUp   a version after the first: Claude changes existing code instead of writing a first version
  * @param previewBase where the latest build is served ("/preview/<id>/"), for the AI player's screenshots;
  *                    null for older versions, whose screenshots were replaced by the latest build's
  */
-export function buildStory(events: RunEvent[], opts: { previewBase: string | null }): Story {
+export function buildStory(events: RunEvent[], opts: { previewBase: string | null; followUp?: boolean }): Story {
   const segs = segmentsOf(events);
   const finishedEvent = events.find((e) => e.type === 'RUN_FINISHED');
   const finished = (finishedEvent?.payload.status as RunStatus | undefined) ?? null;
@@ -103,6 +104,7 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
     const failedStep = seg.events.find((e) => e.type === 'STEP_FINISHED' && e.payload.status === 'FAILED');
     const stepDone = seg.events.some((e) => e.type === 'STEP_FINISHED');
     const running = i === segs.length - 1 && !finished && !stepDone;
+    const cutShort = i === segs.length - 1 && finished === 'CANCELLED' && !stepDone;
     // A playtest reports before its step ends (the judge is still looking): show results as soon as they exist.
     const hasResult = seg.events.some((e) => e.type === 'REVIEW_RESULT' || e.type === 'PLAYTEST_RESULT');
     const end = i + 1 < segs.length ? segs[i + 1].start
@@ -121,11 +123,14 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
     if (failedStep) {
       entry.bad = true;
       say(`这一步失败了：${String(failedStep.payload.error ?? '')}`);
+    } else if (cutShort) {
+      say('被取消，没有完成。');
     } else if (running && !hasResult) {
       say(doing);
     } else if (seg.type === 'CODE') {
       const files = new Set(seg.events.filter((e) => e.type === 'FILE_CHANGED').map((e) => e.payload.path)).size;
-      say(files ? `根据需求写出了第一版，改动 ${files} 个文件。` : '根据需求写出了第一版。');
+      if (opts.followUp) say(files ? `按修改需求改好了代码，改动 ${files} 个文件。` : '按修改需求改好了代码。');
+      else say(files ? `根据需求写出了第一版，改动 ${files} 个文件。` : '根据需求写出了第一版。');
     } else if (seg.type === 'FIX') {
       say(seg.trigger === 'PLAYTEST' ? '按试玩报告修复了问题。' : '按审查意见修改了代码。');
     } else if (seg.type === 'REVIEW') {
@@ -167,7 +172,9 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
     }
   });
 
-  return { entries, note, finished, reason: (finishedEvent?.payload.reason as string | null | undefined) ?? null };
+  const raw = (finishedEvent?.payload.reason as string | null | undefined) ?? null;
+  const reason = finished === 'CANCELLED' ? '你取消了这一版，游戏保持上一版不变。' : raw;
+  return { entries, note, finished, reason };
 }
 
 function aiBlock(ai: Record<string, unknown> | undefined, previewBase: string | null): AiBlock | null {

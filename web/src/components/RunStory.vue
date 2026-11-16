@@ -6,9 +6,9 @@ import type { RunEvent } from '../api/types';
 import { buildStory } from '../story/story';
 import EventFeed from './EventFeed.vue';
 
-const props = defineProps<{ events: RunEvent[]; previewBase: string | null; instruction: string; label: string }>();
+const props = defineProps<{ events: RunEvent[]; previewBase: string | null; instruction: string; label: string; followUp?: boolean }>();
 
-const story = computed(() => buildStory(props.events, { previewBase: props.previewBase }));
+const story = computed(() => buildStory(props.events, { previewBase: props.previewBase, followUp: props.followUp }));
 const showNote = ref(false);
 const showLog = ref(false);
 </script>
