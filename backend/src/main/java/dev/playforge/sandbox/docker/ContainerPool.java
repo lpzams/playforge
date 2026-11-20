@@ -29,6 +29,7 @@ public class ContainerPool {
     private final AtomicInteger creating = new AtomicInteger();
     private final ExecutorService background = Executors.newVirtualThreadPerTaskExecutor();
     private final boolean sweepOnStart;
+    private final Runnable prepare;
     private volatile boolean stopped;
     /** Message of the most recent failed {@code docker run}; cleared on success. */
     private volatile String lastCreateError;
@@ -42,10 +43,19 @@ public class ContainerPool {
      *                     a previous process that was killed without shutdown (e.g. an IDE hard stop).
      */
     public ContainerPool(DockerOps ops, DockerRunSpec spec, int size, boolean sweepOnStart) {
+        this(ops, spec, size, sweepOnStart, () -> { });
+    }
+
+    /**
+     * @param prepare runs before every container start (e.g. making sure the network and gateway exist); its
+     *                failure counts as a failed start
+     */
+    public ContainerPool(DockerOps ops, DockerRunSpec spec, int size, boolean sweepOnStart, Runnable prepare) {
         this.ops = ops;
         this.spec = spec;
         this.size = size;
         this.sweepOnStart = sweepOnStart;
+        this.prepare = prepare;
     }
 
     /** Starts warming up asynchronously. Never throws: Docker may come up later. */
@@ -153,6 +163,7 @@ public class ContainerPool {
                 creating.incrementAndGet();
             }
             try {
+                prepare.run();
                 String id = ops.runDetached(spec);
                 lastCreateError = null;
                 all.add(id);

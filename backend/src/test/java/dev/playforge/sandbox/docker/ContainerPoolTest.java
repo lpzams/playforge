@@ -63,6 +63,34 @@ class ContainerPoolTest {
     }
 
     @Test
+    void prepareRunsBeforeEachContainerAndItsFailureIsTheCreateError() {
+        List<String> order = new CopyOnWriteArrayList<>();
+        FakeDockerOps recording = new FakeDockerOps() {
+            @Override public String runDetached(DockerRunSpec spec) {
+                order.add("run");
+                return super.runDetached(spec);
+            }
+        };
+        ContainerPool prepared = new ContainerPool(recording, SPEC, 2, false, () -> order.add("prepare"));
+        try {
+            prepared.start();
+            await().atMost(Duration.ofSeconds(5)).until(() -> prepared.idleCount() == 2);
+            assertThat(order).containsExactly("prepare", "run", "prepare", "run");
+        } finally {
+            prepared.shutdown();
+        }
+
+        ContainerPool broken = new ContainerPool(new FakeDockerOps(), SPEC, 1, false, () -> {
+            throw new IllegalStateException("gateway down");
+        });
+        try {
+            assertThatThrownBy(() -> broken.acquire(Duration.ofSeconds(2))).hasMessageContaining("gateway down");
+        } finally {
+            broken.shutdown();
+        }
+    }
+
+    @Test
     void startSweepsOrphansBeforeWarmupWhenEnabled() {
         ContainerPool p = new ContainerPool(ops, SPEC, 2, true);
         try {
