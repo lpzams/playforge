@@ -32,3 +32,8 @@ playforge:
     acquire-timeout: 60s
     codex-auth-file: ${USERPROFILE:${user.home}}/.codex/auth.json
     docker-command: docker
+    egress:
+      enabled: true
+      upstream: ""
+      script: ../sandbox/egress/egress.mjs
+      allow: [api.anthropic.com, chatgpt.com, auth.openai.com, api.openai.com, registry.npmjs.org, registry.npmmirror.com, cdn.npmmirror.com]

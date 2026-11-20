@@ -24,6 +24,8 @@ class CliDockerOpsTest {
         final List<Map<String, String>> envs = new ArrayList<>();
         final List<byte[]> stdins = new ArrayList<>();
         String stdout = "abc123\n";
+        /** Exit code per command; 0 by default. */
+        java.util.function.ToIntFunction<List<String>> exit = c -> 0;
 
         @Override
         public ExecResult run(List<String> cmd, Map<String, String> extraEnv, byte[] stdin, Duration timeout,
@@ -32,7 +34,7 @@ class CliDockerOpsTest {
             envs.add(extraEnv);
             stdins.add(stdin);
             stdout.lines().forEach(stdoutLine);
-            return new ExecResult(0, "");
+            return new ExecResult(exit.applyAsInt(cmd), "");
         }
 
         @Override
@@ -125,5 +127,68 @@ class CliDockerOpsTest {
 
         assertThat(runner.cmds.getFirst()).containsExactly("docker", "exec", "-i", "-w", "/workspace", "abc123", "claude", "-p");
         assertThat(runner.stdins.getFirst()).isEqualTo(stdin);
+    }
+
+    @Test
+    void runWithNetworkAndLiteralEnv() {
+        ops.runDetached(SPEC.withNetwork("playforge-sandbox", Map.of("HTTPS_PROXY", "http://egress:3128")));
+        List<String> cmd = runner.cmds.getFirst();
+        String line = String.join(" ", cmd);
+        assertThat(line).contains("--network playforge-sandbox").contains("-e HTTPS_PROXY=http://egress:3128")
+                .contains("-e CLAUDE_CODE_OAUTH_TOKEN ").endsWith("playforge-sandbox:p2");
+        assertThat(cmd).noneMatch(a -> a.contains("secret-token-123"));
+    }
+
+    @Test
+    void runNamedWithAliasAndCommand() {
+        DockerRunSpec spec = new DockerRunSpec("playforge-sandbox:p4", Map.of(), List.of(), "0.5", "128m", 64,
+                Map.of("playforge.egress", "app"), "playforge-egress", "playforge-sandbox", "egress", Map.of(),
+                List.of("node", "/egress/egress.mjs"));
+        ops.runDetached(spec);
+        String line = String.join(" ", runner.cmds.getFirst());
+        assertThat(line).contains("--name playforge-egress").contains("--network playforge-sandbox")
+                .contains("--network-alias egress").endsWith("playforge-sandbox:p4 node /egress/egress.mjs");
+    }
+
+    @Test
+    void runWithoutNetworkIsUnchanged() {
+        ops.runDetached(SPEC);
+        String line = String.join(" ", runner.cmds.getFirst());
+        assertThat(line).doesNotContain("--network").doesNotContain("--name");
+    }
+
+    @Test
+    void ensureNetworkCreatesWhenMissing() {
+        runner.exit = c -> c.contains("inspect") ? 1 : 0;
+        ops.ensureNetwork("playforge-sandbox", true);
+        assertThat(runner.cmds.get(0)).containsExactly("docker", "network", "inspect", "playforge-sandbox");
+        assertThat(runner.cmds.get(1)).containsExactly("docker", "network", "create", "--internal", "playforge-sandbox");
+    }
+
+    @Test
+    void ensureNetworkKeepsAnExistingOne() {
+        ops.ensureNetwork("playforge-sandbox", true);
+        assertThat(runner.cmds).hasSize(1);
+    }
+
+    @Test
+    void connectAttachesAContainer() {
+        ops.connect("bridge", "gw1");
+        assertThat(runner.cmds.getFirst()).containsExactly("docker", "network", "connect", "bridge", "gw1");
+    }
+
+    @Test
+    void containerIpReadsTheNamedNetwork() {
+        runner.stdout = "172.30.0.5\n";
+        assertThat(ops.containerIp("abc123", "playforge-sandbox")).isEqualTo("172.30.0.5");
+        assertThat(runner.cmds.getFirst()).containsExactly("docker", "inspect", "-f",
+                "{{(index .NetworkSettings.Networks \"playforge-sandbox\").IPAddress}}", "abc123");
+    }
+
+    @Test
+    void findRunningFiltersByLabels() {
+        runner.stdout = "gw1\n";
+        assertThat(ops.findRunning(Map.of("a", "b"))).containsExactly("gw1");
+        assertThat(runner.cmds.getFirst()).containsExactly("docker", "ps", "-q", "--filter", "label=a=b");
     }
 }

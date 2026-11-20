@@ -38,6 +38,10 @@ class ContainerPoolTest {
             calls.add("removeLabeled " + labels);
             return 0;
         }
+        @Override public List<String> findRunning(Map<String, String> labels) { return List.of(); }
+        @Override public void ensureNetwork(String name, boolean internal) { }
+        @Override public void connect(String network, String containerId) { }
+        @Override public String containerIp(String containerId, String network) { return ""; }
         @Override public ExecResult exec(String id, List<String> cmd, byte[] stdin, Duration t, CancellationToken c, Consumer<String> out) {
             return new ExecResult(0, "");
         }

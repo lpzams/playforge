@@ -69,6 +69,10 @@ public class CliDockerOps implements DockerOps {
                 env.put(containerVar, value);
             }
         });
+        spec.env().forEach((k, v) -> {
+            cmd.add("-e");
+            cmd.add(k + "=" + v);
+        });
         spec.labels().forEach((k, v) -> {
             cmd.add("--label");
             cmd.add(k + "=" + v);
@@ -77,7 +81,11 @@ public class CliDockerOps implements DockerOps {
             cmd.add("--mount");
             cmd.add("type=bind,source=" + m.source() + ",target=" + m.target() + ",readonly");
         }
+        if (spec.name() != null) cmd.addAll(List.of("--name", spec.name()));
+        if (spec.network() != null) cmd.addAll(List.of("--network", spec.network()));
+        if (spec.networkAlias() != null) cmd.addAll(List.of("--network-alias", spec.networkAlias()));
         cmd.add(spec.image());
+        cmd.addAll(spec.command());
 
         List<String> out = new ArrayList<>();
         ExecResult r = runner.run(cmd, env, null, RUN, new CancellationToken(), out::add);
@@ -149,7 +157,21 @@ public class CliDockerOps implements DockerOps {
 
     @Override
     public int removeLabeled(Map<String, String> labels) {
-        List<String> ps = new ArrayList<>(List.of(docker, "ps", "-aq"));
+        List<String> ids = listLabeled("-aq", labels);
+        if (ids.isEmpty()) return 0;
+        List<String> rm = new ArrayList<>(List.of(docker, "rm", "-f"));
+        rm.addAll(ids);
+        runner.run(rm, Map.of(), null, RUN, new CancellationToken(), l -> { });
+        return ids.size();
+    }
+
+    @Override
+    public List<String> findRunning(Map<String, String> labels) {
+        return listLabeled("-q", labels);
+    }
+
+    private List<String> listLabeled(String flags, Map<String, String> labels) {
+        List<String> ps = new ArrayList<>(List.of(docker, "ps", flags));
         labels.forEach((k, v) -> {
             ps.add("--filter");
             ps.add("label=" + k + "=" + v);
@@ -158,11 +180,34 @@ public class CliDockerOps implements DockerOps {
         runner.run(ps, Map.of(), null, SHORT, new CancellationToken(), l -> {
             if (!l.isBlank()) ids.add(l.trim());
         });
-        if (ids.isEmpty()) return 0;
-        List<String> rm = new ArrayList<>(List.of(docker, "rm", "-f"));
-        rm.addAll(ids);
-        runner.run(rm, Map.of(), null, RUN, new CancellationToken(), l -> { });
-        return ids.size();
+        return ids;
+    }
+
+    @Override
+    public void ensureNetwork(String name, boolean internal) {
+        ExecResult exists = runner.run(List.of(docker, "network", "inspect", name), Map.of(), null, SHORT,
+                new CancellationToken(), l -> { });
+        if (exists.exitCode() == 0) return;
+        List<String> create = new ArrayList<>(List.of(docker, "network", "create"));
+        if (internal) create.add("--internal");
+        create.add(name);
+        check(runner.run(create, Map.of(), null, SHORT, new CancellationToken(), l -> { }), "create network " + name);
+    }
+
+    @Override
+    public void connect(String network, String containerId) {
+        check(runner.run(List.of(docker, "network", "connect", network, containerId), Map.of(), null, SHORT,
+                new CancellationToken(), l -> { }), "connect " + containerId + " to " + network);
+    }
+
+    @Override
+    public String containerIp(String containerId, String network) {
+        List<String> out = new ArrayList<>();
+        ExecResult r = runner.run(List.of(docker, "inspect", "-f",
+                        "{{(index .NetworkSettings.Networks \"" + network + "\").IPAddress}}", containerId),
+                Map.of(), null, SHORT, new CancellationToken(), out::add);
+        if (r.exitCode() != 0) return "";
+        return out.stream().map(String::trim).filter(l -> !l.isEmpty() && !l.equals("<no value>")).findFirst().orElse("");
     }
 
     private static void check(ExecResult r, String what) {
