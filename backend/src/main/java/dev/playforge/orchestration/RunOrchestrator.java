@@ -35,6 +35,7 @@ import dev.playforge.run.Step;
 import dev.playforge.run.StepStatus;
 import dev.playforge.run.StepTrigger;
 import dev.playforge.run.StepType;
+import dev.playforge.sandbox.BlockedRequest;
 import dev.playforge.sandbox.Sandbox;
 import dev.playforge.sandbox.SandboxProvider;
 import dev.playforge.workspace.GitWorkspace;
@@ -158,8 +159,13 @@ public class RunOrchestrator {
             Step step = ex.resume() ? history.getLast() : store.startStep(runId, ex.type(), ex.round(), ex.trigger());
             events.publish(runId, RunEventType.STEP_STARTED, SYSTEM, mapOf("stepId", step.getId(), "type", ex.type(),
                     "round", ex.round(), "trigger", ex.trigger(), "resume", ex.resume()));
+            Instant stepStarted = Instant.now();
             try {
-                runStep(ctx, step, history);
+                try {
+                    runStep(ctx, step, history);
+                } finally {
+                    reportBlocked(ctx, stepStarted);
+                }
                 events.publish(runId, RunEventType.STEP_FINISHED, SYSTEM, mapOf("stepId", step.getId(), "status", StepStatus.DONE));
             } catch (CancelledException e) {
                 if (!ctx.cancel().isShutdown()) {
@@ -175,6 +181,22 @@ public class RunOrchestrator {
             }
             ctx.cancel().throwIfCancelled();
         }
+    }
+
+    /** Publishes what the sandbox network refused during the step; never fails the step. */
+    private void reportBlocked(Ctx ctx, Instant since) {
+        if (ctx.cancel().isShutdown()) return;
+        List<BlockedRequest> blocked;
+        try {
+            blocked = ctx.sandbox().blockedSince(since);
+        } catch (RuntimeException e) {
+            log.warn("could not read refused requests of run {}: {}", ctx.run().getId(), e.getMessage());
+            return;
+        }
+        if (blocked.isEmpty()) return;
+        List<Map<String, Object>> requests = blocked.stream()
+                .map(b -> mapOf("host", b.host(), "port", b.port(), "count", b.count())).toList();
+        events.publish(ctx.run().getId(), RunEventType.NETWORK_BLOCKED, SYSTEM, mapOf("requests", requests));
     }
 
     private void runStep(Ctx ctx, Step step, List<Step> history) throws EngineException {

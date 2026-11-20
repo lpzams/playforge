@@ -59,6 +59,7 @@ const showLog = ref(false);
         <ul v-if="e.hints.length" class="ai-checks hint">
           <li v-for="(h, i) in e.hints" :key="i">{{ h }}</li>
         </ul>
+        <p v-if="e.blocked" class="checklist" data-test="blocked">{{ e.blocked }}</p>
       </div>
     </li>
 
