@@ -144,3 +144,68 @@ test('an upstream that never answers gives 502 within the timeout', async () => 
   assert.equal(status, 502);
   assert.ok(Date.now() - t0 < 2000);
 });
+
+/** Resolves true if the event fires within ms, false otherwise. */
+const within = (emitter, event, ms) => new Promise((resolve) => {
+  const timer = setTimeout(() => resolve(false), ms);
+  emitter.once(event, () => { clearTimeout(timer); resolve(true); });
+});
+
+test('a client that leaves while the gateway is still connecting does not leak the upstream socket', async () => {
+  // An upstream proxy that answers 200 only after 300 ms; hands us its side of the socket.
+  const slow = net.createServer((sock) => {
+    sock.on('error', () => {});
+    sock.once('data', () => setTimeout(() => sock.writable && sock.write('HTTP/1.1 200 OK\r\n\r\n'), 300));
+  });
+  const slowPort = await listen(slow);
+  const gotConn = once(slow, 'connection');
+  const g = await gateway({ allow: ['127.0.0.1'], ports: [9], upstream: `http://127.0.0.1:${slowPort}` });
+  const client = net.connect(g.port, '127.0.0.1');
+  client.on('error', () => {});
+  await once(client, 'connect');
+  client.write('CONNECT 127.0.0.1:9 HTTP/1.1\r\nHost: 127.0.0.1:9\r\n\r\n');
+  const [upstreamSide] = await gotConn;
+  closers.push(() => upstreamSide.destroy());
+  client.resetAndDestroy(); // RST, not FIN: a clean end would be propagated by pipe() and hide the leak
+  assert.equal(await within(upstreamSide, 'close', 1500), true, 'upstream socket closed after the client left');
+});
+
+test('an error on the remote side after the tunnel is up closes the client without crashing', async () => {
+  let remoteSide;
+  const rst = net.createServer((sock) => { sock.on('error', () => {}); remoteSide = sock; });
+  const rstPort = await listen(rst);
+  const g = await gateway({ allow: ['127.0.0.1'], ports: [rstPort] });
+  const { status, sock } = await connect(g.port, `127.0.0.1:${rstPort}`);
+  assert.equal(status, 200);
+  sock.on('error', () => {});
+  remoteSide.resetAndDestroy(); // ECONNRESET on the gateway's remote socket
+  assert.equal(await within(sock, 'close', 1500), true);
+  // The gateway is still serving.
+  const again = await connect(g.port, 'example.org:443');
+  assert.equal(again.status, 403);
+});
+
+test('connections beyond maxConnections are refused', async () => {
+  const echo = await echoServer();
+  const g = await gateway({ allow: ['127.0.0.1'], ports: [echo.port], maxConnections: 2 });
+  assert.equal(g.server.maxConnections, 2);
+  const t1 = await connect(g.port, `127.0.0.1:${echo.port}`);
+  const t2 = await connect(g.port, `127.0.0.1:${echo.port}`);
+  assert.equal(t1.status, 200);
+  assert.equal(t2.status, 200);
+  const third = net.connect(g.port, '127.0.0.1');
+  closers.push(() => third.destroy());
+  third.on('error', () => {});
+  let got = '';
+  third.on('data', (c) => { got += c.toString('latin1'); });
+  third.on('connect', () => third.write(`CONNECT 127.0.0.1:${echo.port} HTTP/1.1\r\nHost: x\r\n\r\n`));
+  assert.equal(await within(third, 'close', 1500), true, 'third connection closed');
+  assert.ok(!got.includes(' 200 '), 'third connection never got a tunnel');
+  // The first tunnels still work.
+  assert.equal(await echoes(t1.sock), 'ping');
+});
+
+test('maxConnections defaults to 256', async () => {
+  const g = await gateway({ allow: [] });
+  assert.equal(g.server.maxConnections, 256);
+});
