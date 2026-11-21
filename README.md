@@ -69,7 +69,7 @@ flowchart TB
 - **AI**：Claude Code CLI（写代码）、Codex CLI（审查），都在容器里使用个人订阅
 - **试玩**：Playwright + Chromium、自定义探针协议、pngjs
 - **前端**：Vue 3、TypeScript、Vite（无 UI 组件库，和作品展同一套视觉）
-- **测试**：后端 190+（JUnit 5，含真实 Docker 集成测试）、前端 30+（Vitest）
+- **测试**：后端 280+（JUnit 5，含真实 Docker 集成测试和沙箱隔离检查）、前端 60+（Vitest）、出口网关 13（node:test）
 
 ## 项目结构
 

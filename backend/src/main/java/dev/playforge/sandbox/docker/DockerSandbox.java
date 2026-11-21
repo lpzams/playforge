@@ -57,7 +57,7 @@ public class DockerSandbox implements Sandbox {
     public synchronized List<BlockedRequest> blockedSince(Instant since) {
         if (egress == null) return List.of();
         try {
-            if (ip == null || ip.isEmpty()) ip = ops.containerIp(containerId, EgressGateway.NETWORK);
+            if (ip == null || ip.isEmpty()) ip = ops.containerIp(containerId, egress.network());
             EgressGateway.Slice slice = egress.blocked(ip, logLine);
             logLine = slice.next();
             return slice.blocked();

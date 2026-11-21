@@ -34,7 +34,6 @@ public class EgressGateway {
 
     public static final String NETWORK = "playforge-sandbox";
     public static final String NAME = "playforge-egress";
-    public static final String PROXY = "http://egress:3128";
     static final String LOG = "/tmp/egress.jsonl";
     static final String LABEL = "playforge.egress";
     static final String CONFIG_LABEL = "playforge.egress.config";
@@ -54,8 +53,22 @@ public class EgressGateway {
     private final Path script;
     private final List<String> allow;
     private final String upstream;
+    private final Names names;
+
+    /**
+     * Docker names of one gateway: its container, its internal network, the alias sandboxes reach it by, and the
+     * value of its {@link #LABEL}. Tests pass their own so they never touch the app's gateway.
+     */
+    public record Names(String container, String network, String alias, String labelValue) {
+        public static final Names APP = new Names(NAME, NETWORK, "egress", "app");
+    }
 
     public EgressGateway(DockerOps ops, String image, Path script, List<String> allow, String upstream) {
+        this(ops, image, script, allow, upstream, Names.APP);
+    }
+
+    public EgressGateway(DockerOps ops, String image, Path script, List<String> allow, String upstream, Names names) {
+        this.names = names;
         this.ops = ops;
         this.image = image;
         this.script = script.toAbsolutePath().normalize();
@@ -74,19 +87,19 @@ public class EgressGateway {
     }
 
     private void ensureLocked() {
-        ops.ensureNetwork(NETWORK, true);
+        ops.ensureNetwork(names.network(), true);
         String hash = configHash();
-        if (!ops.findRunning(Map.of(LABEL, "app", CONFIG_LABEL, hash)).isEmpty()) return;
-        ops.removeLabeled(Map.of(LABEL, "app"));
+        if (!ops.findRunning(Map.of(LABEL, names.labelValue(), CONFIG_LABEL, hash)).isEmpty()) return;
+        ops.removeLabeled(Map.of(LABEL, names.labelValue()));
         Map<String, String> env = new HashMap<>();
         env.put("EGRESS_ALLOW", String.join(",", allow));
         if (!upstream.isEmpty()) env.put("EGRESS_UPSTREAM", upstream);
         DockerRunSpec spec = new DockerRunSpec(image, Map.of(),
                 List.of(new DockerRunSpec.Mount(script.toString(), SCRIPT_TARGET)), "0.5", "128m", 64,
-                Map.of(LABEL, "app", CONFIG_LABEL, hash), NAME, NETWORK, "egress", env,
+                Map.of(LABEL, names.labelValue(), CONFIG_LABEL, hash), names.container(), names.network(), names.alias(), env,
                 List.of("node", SCRIPT_TARGET));
         // An unlabeled leftover with our name would make every run fail with a name conflict.
-        ops.removeNamed(NAME);
+        ops.removeNamed(names.container());
         String id = ops.runDetached(spec);
         try {
             ops.connect("bridge", id);
@@ -100,6 +113,11 @@ public class EgressGateway {
                 upstream.isEmpty() ? "" : ", upstream " + upstream);
     }
 
+    /** The internal network sandboxes join to use this gateway. */
+    public String network() {
+        return names.network();
+    }
+
     /** Polling of a new gateway until it listens; shortened by tests. */
     void readiness(Duration interval, Duration timeout) {
         this.pollInterval = interval;
@@ -111,7 +129,7 @@ public class EgressGateway {
         long deadline = System.nanoTime() + readyTimeout.toNanos();
         while (true) {
             try {
-                if (ops.exec(NAME, List.of("node", "-e", LISTENING), null, Duration.ofSeconds(5),
+                if (ops.exec(names.container(), List.of("node", "-e", LISTENING), null, Duration.ofSeconds(5),
                         new CancellationToken(), l -> { }).exitCode() == 0) return;
             } catch (RuntimeException e) {
                 // not up yet: try again
@@ -129,7 +147,7 @@ public class EgressGateway {
 
     public void remove() {
         try {
-            ops.removeLabeled(Map.of(LABEL, "app"));
+            ops.removeLabeled(Map.of(LABEL, names.labelValue()));
         } catch (RuntimeException e) {
             log.warn("could not remove the egress gateway: {}", e.getMessage());
         }
@@ -137,7 +155,8 @@ public class EgressGateway {
 
     /** Variables that send a sandbox's traffic through the gateway. */
     public Map<String, String> sandboxEnv() {
-        return Map.of("HTTPS_PROXY", PROXY, "HTTP_PROXY", PROXY, "NO_PROXY", "localhost,127.0.0.1,::1",
+        String proxy = "http://" + names.alias() + ":3128";
+        return Map.of("HTTPS_PROXY", proxy, "HTTP_PROXY", proxy, "NO_PROXY", "localhost,127.0.0.1,::1",
                 "NODE_USE_ENV_PROXY", "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
     }
 
@@ -150,7 +169,7 @@ public class EgressGateway {
     /** Number of lines in the gateway's log: a new sandbox's starting position. 0 when it can't be read. */
     public int lineCount() {
         List<String> out = new ArrayList<>();
-        ExecResult r = ops.exec(NAME, List.of("sh", "-c", "f=" + LOG + "; touch $f; wc -l < $f"), null,
+        ExecResult r = ops.exec(names.container(), List.of("sh", "-c", "f=" + LOG + "; touch $f; wc -l < $f"), null,
                 Duration.ofSeconds(10), new CancellationToken(), out::add);
         return r.exitCode() == 0 && !out.isEmpty() ? count(out.getFirst()) : 0;
     }
@@ -173,7 +192,7 @@ public class EgressGateway {
     /** First line: the log's length; then every line after {@code from}. Null when the command fails. */
     private List<String> read(int from) {
         List<String> out = new ArrayList<>();
-        ExecResult r = ops.exec(NAME, List.of("sh", "-c",
+        ExecResult r = ops.exec(names.container(), List.of("sh", "-c",
                         "f=" + LOG + "; touch $f; wc -l < $f; tail -n +" + (from + 1) + " " + LOG), null,
                 Duration.ofSeconds(10), new CancellationToken(), out::add);
         return r.exitCode() == 0 && !out.isEmpty() ? out : null;
