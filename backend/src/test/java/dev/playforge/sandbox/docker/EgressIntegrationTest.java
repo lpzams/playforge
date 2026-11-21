@@ -84,8 +84,11 @@ class EgressIntegrationTest {
     void noRouteWithoutTheProxy() {
         try (DockerSandbox s = sandbox()) {
             List<String> out = new CopyOnWriteArrayList<>();
-            int exit = sh(s, "env -u HTTPS_PROXY -u HTTP_PROXY -u NODE_USE_ENV_PROXY node -e "
-                    + "\"fetch('https://1.1.1.1',{signal:AbortSignal.timeout(8000)}).then(()=>console.log('REACHED'),e=>{console.log('NO-ROUTE',e.cause?.code||e.name);process.exit(3)})\"", out);
+            // The script goes in on stdin: double quotes in process arguments don't survive Windows.
+            String js = "fetch('https://1.1.1.1',{signal:AbortSignal.timeout(8000)}).then(()=>console.log('REACHED'),"
+                    + "e=>{console.log('NO-ROUTE',e.cause?.code||e.name);process.exit(3)})";
+            int exit = s.exec(List.of("sh", "-c", "env -u HTTPS_PROXY -u HTTP_PROXY -u NODE_USE_ENV_PROXY node - 2>&1"),
+                    js, Duration.ofSeconds(60), new CancellationToken(), out::add).exitCode();
             assertThat(String.join("\n", out)).doesNotContain("REACHED").contains("NO-ROUTE");
             assertThat(exit).isEqualTo(3);
         }

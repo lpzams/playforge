@@ -202,12 +202,18 @@ public class CliDockerOps implements DockerOps {
 
     @Override
     public String containerIp(String containerId, String network) {
+        // Lists every network as name=ip; a template naming the network would need double quotes, which Windows
+        // process creation mangles.
         List<String> out = new ArrayList<>();
         ExecResult r = runner.run(List.of(docker, "inspect", "-f",
-                        "{{(index .NetworkSettings.Networks \"" + network + "\").IPAddress}}", containerId),
+                        "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}};{{end}}", containerId),
                 Map.of(), null, SHORT, new CancellationToken(), out::add);
         if (r.exitCode() != 0) return "";
-        return out.stream().map(String::trim).filter(l -> !l.isEmpty() && !l.equals("<no value>")).findFirst().orElse("");
+        for (String entry : String.join("", out).split(";")) {
+            int eq = entry.indexOf('=');
+            if (eq > 0 && entry.substring(0, eq).trim().equals(network)) return entry.substring(eq + 1).trim();
+        }
+        return "";
     }
 
     private static void check(ExecResult r, String what) {

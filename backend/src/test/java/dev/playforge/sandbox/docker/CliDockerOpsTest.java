@@ -179,10 +179,17 @@ class CliDockerOpsTest {
 
     @Test
     void containerIpReadsTheNamedNetwork() {
-        runner.stdout = "172.30.0.5\n";
+        runner.stdout = "bridge=172.17.0.3;playforge-sandbox=172.30.0.5;\n";
         assertThat(ops.containerIp("abc123", "playforge-sandbox")).isEqualTo("172.30.0.5");
-        assertThat(runner.cmds.getFirst()).containsExactly("docker", "inspect", "-f",
-                "{{(index .NetworkSettings.Networks \"playforge-sandbox\").IPAddress}}", "abc123");
+        // No double quotes in arguments: Windows process creation mangles them.
+        assertThat(runner.cmds.getFirst()).noneMatch(a -> a.contains("\""));
+        assertThat(runner.cmds.getFirst()).startsWith("docker", "inspect", "-f").endsWith("abc123");
+    }
+
+    @Test
+    void containerIpIsEmptyWhenNotAttached() {
+        runner.stdout = "bridge=172.17.0.3;\n";
+        assertThat(ops.containerIp("abc123", "playforge-sandbox")).isEmpty();
     }
 
     @Test
