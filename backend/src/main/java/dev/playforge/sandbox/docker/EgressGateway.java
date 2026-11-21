@@ -166,7 +166,7 @@ public class EgressGateway {
     }
 
     /**
-     * What may appear in the (published) run story: the main domain of a plausible name, e.g. "example.com" for
+     * What may appear in the (published) run story: the main domain of a plausible name, e.g. "*.example.com" for
      * "telemetry.tracker.example.com". Untrusted code chooses the host, so a smuggled secret must not survive.
      */
     static String publicName(String host) {
@@ -178,7 +178,8 @@ public class EgressGateway {
         String a = labels[labels.length - 2];
         String b = labels[labels.length - 1];
         if (a.isEmpty() || b.isEmpty() || a.length() > 30 || b.length() > 30) return "(invalid)";
-        return a + "." + b;
+        // A subdomain keeps a "*." so "ab.chatgpt.com" never reads as the allowed "chatgpt.com".
+        return (labels.length > 2 ? "*." : "") + a + "." + b;
     }
 
     private String configHash() {

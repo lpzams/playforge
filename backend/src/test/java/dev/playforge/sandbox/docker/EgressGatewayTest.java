@@ -156,9 +156,12 @@ class EgressGatewayTest {
                 refused("172.30.0.5", "(invalid)"),
                 refused("172.30.0.5", "10.0.0.8"));
 
+        // A subdomain shows as *.domain: "ab.chatgpt.com" must not read as the allowed "chatgpt.com".
         assertThat(EgressGateway.parse(lines, "172.30.0.5")).containsExactly(
-                new BlockedRequest("example.com", 443, 1), new BlockedRequest("evil.com", 443, 1),
+                new BlockedRequest("*.example.com", 443, 1), new BlockedRequest("*.evil.com", 443, 1),
                 new BlockedRequest("(invalid)", 443, 3), new BlockedRequest("10.0.0.8", 443, 1));
+        assertThat(EgressGateway.parse(List.of(refused("172.30.0.5", "evil.com")), "172.30.0.5"))
+                .containsExactly(new BlockedRequest("evil.com", 443, 1));
     }
 
     @Test
