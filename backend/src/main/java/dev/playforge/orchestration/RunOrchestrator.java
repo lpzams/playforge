@@ -196,7 +196,8 @@ public class RunOrchestrator {
         if (blocked.isEmpty()) return;
         List<Map<String, Object>> requests = blocked.stream()
                 .map(b -> mapOf("host", b.host(), "port", b.port(), "count", b.count())).toList();
-        events.publish(ctx.run().getId(), RunEventType.NETWORK_BLOCKED, SYSTEM, mapOf("requests", requests));
+        // Host names come from untrusted code: already reduced to plain domains, and redacted like all sandbox output.
+        events.publish(ctx.run().getId(), RunEventType.NETWORK_BLOCKED, SYSTEM, redactor.redact(mapOf("requests", requests)));
     }
 
     private void runStep(Ctx ctx, Step step, List<Step> history) throws EngineException {

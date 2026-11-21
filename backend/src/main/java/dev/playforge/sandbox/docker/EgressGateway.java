@@ -15,7 +15,6 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -39,8 +38,6 @@ public class EgressGateway {
     static final String LABEL = "playforge.egress";
     static final String CONFIG_LABEL = "playforge.egress.config";
     private static final String SCRIPT_TARGET = "/egress/egress.mjs";
-    /** Container and host clocks may differ a little; a refusal this much before the step still counts. */
-    private static final Duration SKEW = Duration.ofSeconds(2);
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final DockerOps ops;
@@ -71,7 +68,13 @@ public class EgressGateway {
                 Map.of(LABEL, "app", CONFIG_LABEL, hash), NAME, NETWORK, "egress", env,
                 List.of("node", SCRIPT_TARGET));
         String id = ops.runDetached(spec);
-        ops.connect("bridge", id);
+        try {
+            ops.connect("bridge", id);
+        } catch (RuntimeException e) {
+            // Without the bridge it can't reach anything, yet it carries the right label: never leave it running.
+            ops.remove(id);
+            throw e;
+        }
         log.info("egress gateway started (allow: {}{})", String.join(", ", allow),
                 upstream.isEmpty() ? "" : ", upstream " + upstream);
     }
@@ -90,17 +93,58 @@ public class EgressGateway {
                 "NODE_USE_ENV_PROXY", "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
     }
 
-    /** Requests from {@code clientIp} the gateway refused since {@code since}; empty when the log can't be read. */
-    public List<BlockedRequest> blocked(String clientIp, Instant since) {
-        if (clientIp == null || clientIp.isBlank()) return List.of();
-        List<String> lines = new ArrayList<>();
-        ExecResult r = ops.exec(NAME, List.of("cat", LOG), null, Duration.ofSeconds(10), new CancellationToken(), lines::add);
-        if (r.exitCode() != 0) return List.of();
-        return parse(lines, clientIp, since);
+    /**
+     * Refusals read from the log after line {@code next}: what a sandbox's later steps start from. Positions in the
+     * log, not timestamps, so the container and host clocks never have to agree.
+     */
+    public record Slice(List<BlockedRequest> blocked, int next) {}
+
+    /** Number of lines in the gateway's log: a new sandbox's starting position. 0 when it can't be read. */
+    public int lineCount() {
+        List<String> out = new ArrayList<>();
+        ExecResult r = ops.exec(NAME, List.of("sh", "-c", "f=" + LOG + "; touch $f; wc -l < $f"), null,
+                Duration.ofSeconds(10), new CancellationToken(), out::add);
+        return r.exitCode() == 0 && !out.isEmpty() ? count(out.getFirst()) : 0;
     }
 
-    static List<BlockedRequest> parse(List<String> lines, String clientIp, Instant since) {
-        Instant from = since.minus(SKEW);
+    /** Requests from {@code clientIp} refused after line {@code from}; nothing (and the same position) when unreadable. */
+    public Slice blocked(String clientIp, int from) {
+        if (clientIp == null || clientIp.isBlank()) return new Slice(List.of(), from);
+        List<String> out = read(from);
+        if (out == null) return new Slice(List.of(), from);
+        int total = count(out.getFirst());
+        if (total < from) { // the gateway was recreated: its log starts over
+            from = 0;
+            out = read(0);
+            if (out == null) return new Slice(List.of(), 0);
+        }
+        List<String> lines = out.subList(1, out.size());
+        return new Slice(parse(lines, clientIp), from + lines.size());
+    }
+
+    /** First line: the log's length; then every line after {@code from}. Null when the command fails. */
+    private List<String> read(int from) {
+        List<String> out = new ArrayList<>();
+        ExecResult r = ops.exec(NAME, List.of("sh", "-c",
+                        "f=" + LOG + "; touch $f; wc -l < $f; tail -n +" + (from + 1) + " " + LOG), null,
+                Duration.ofSeconds(10), new CancellationToken(), out::add);
+        return r.exitCode() == 0 && !out.isEmpty() ? out : null;
+    }
+
+    private static int count(String s) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static final java.util.regex.Pattern NAME_LIKE = java.util.regex.Pattern.compile("[a-z0-9.-]{1,253}");
+    private static final java.util.regex.Pattern IPV4 = java.util.regex.Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
+    /** Targets listed per step; the rest are dropped (the full detail stays in the gateway's own log). */
+    static final int MAX_TARGETS = 20;
+
+    static List<BlockedRequest> parse(List<String> lines, String clientIp) {
         Map<String, BlockedRequest> byTarget = new LinkedHashMap<>();
         for (String line : lines) {
             JsonNode e;
@@ -111,19 +155,30 @@ public class EgressGateway {
             }
             if (e == null || !e.isObject() || e.path("allowed").asBoolean(true)) continue;
             if (!clientIp.equals(e.path("client").asText().replaceFirst("^::ffff:", ""))) continue;
-            Instant ts;
-            try {
-                ts = Instant.parse(e.path("ts").asText());
-            } catch (RuntimeException ex) {
-                continue;
-            }
-            if (ts.isBefore(from)) continue;
-            String host = e.path("host").asText();
+            String host = publicName(e.path("host").asText());
             int port = e.path("port").asInt();
-            byTarget.merge(host + ":" + port, new BlockedRequest(host, port, 1),
+            String key = host + ":" + port;
+            if (!byTarget.containsKey(key) && byTarget.size() >= MAX_TARGETS) continue;
+            byTarget.merge(key, new BlockedRequest(host, port, 1),
                     (a, b) -> new BlockedRequest(a.host(), a.port(), a.count() + 1));
         }
         return List.copyOf(byTarget.values());
+    }
+
+    /**
+     * What may appear in the (published) run story: the main domain of a plausible name, e.g. "example.com" for
+     * "telemetry.tracker.example.com". Untrusted code chooses the host, so a smuggled secret must not survive.
+     */
+    static String publicName(String host) {
+        String h = host == null ? "" : host.toLowerCase(java.util.Locale.ROOT);
+        if (IPV4.matcher(h).matches()) return h;
+        if (!NAME_LIKE.matcher(h).matches()) return "(invalid)";
+        String[] labels = h.split("\\.");
+        if (labels.length < 2) return "(invalid)";
+        String a = labels[labels.length - 2];
+        String b = labels[labels.length - 1];
+        if (a.isEmpty() || b.isEmpty() || a.length() > 30 || b.length() > 30) return "(invalid)";
+        return a + "." + b;
     }
 
     private String configHash() {

@@ -161,14 +161,23 @@ class CliDockerOpsTest {
     void ensureNetworkCreatesWhenMissing() {
         runner.exit = c -> c.contains("inspect") ? 1 : 0;
         ops.ensureNetwork("playforge-sandbox", true);
-        assertThat(runner.cmds.get(0)).containsExactly("docker", "network", "inspect", "playforge-sandbox");
+        assertThat(runner.cmds.get(0)).containsExactly("docker", "network", "inspect", "-f", "{{.Internal}}", "playforge-sandbox");
         assertThat(runner.cmds.get(1)).containsExactly("docker", "network", "create", "--internal", "playforge-sandbox");
     }
 
     @Test
-    void ensureNetworkKeepsAnExistingOne() {
+    void ensureNetworkKeepsAnExistingInternalOne() {
+        runner.stdout = "true\n";
         ops.ensureNetwork("playforge-sandbox", true);
         assertThat(runner.cmds).hasSize(1);
+    }
+
+    @Test
+    void anExistingNetworkWithARouteOutIsRefused() {
+        // Sandboxes on it would have full internet while everything reports "filtered".
+        runner.stdout = "false\n";
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ops.ensureNetwork("playforge-sandbox", true))
+                .hasMessageContaining("not internal").hasMessageContaining("docker network rm playforge-sandbox");
     }
 
     @Test

@@ -185,9 +185,18 @@ public class CliDockerOps implements DockerOps {
 
     @Override
     public void ensureNetwork(String name, boolean internal) {
-        ExecResult exists = runner.run(List.of(docker, "network", "inspect", name), Map.of(), null, SHORT,
-                new CancellationToken(), l -> { });
-        if (exists.exitCode() == 0) return;
+        List<String> out = new ArrayList<>();
+        ExecResult exists = runner.run(List.of(docker, "network", "inspect", "-f", "{{.Internal}}", name), Map.of(), null,
+                SHORT, new CancellationToken(), out::add);
+        if (exists.exitCode() == 0) {
+            boolean isInternal = out.stream().anyMatch(l -> l.trim().equals("true"));
+            if (internal && !isInternal) {
+                // Sandboxes on it would have a route out while everything reports "filtered".
+                throw new IllegalStateException("network " + name + " exists but is not internal; remove it with "
+                        + "`docker network rm " + name + "` (after stopping its containers) and restart");
+            }
+            return;
+        }
         List<String> create = new ArrayList<>(List.of(docker, "network", "create"));
         if (internal) create.add("--internal");
         create.add(name);

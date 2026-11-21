@@ -126,36 +126,95 @@ class EgressGatewayTest {
                 + ",\"allowed\":" + allowed + "}";
     }
 
-    @Test
-    void parseKeepsRefusalsFromThisClientSinceTheStep() {
-        Instant since = Instant.parse("2026-11-20T10:00:00Z");
-        List<String> lines = List.of(
-                line("2026-11-20T09:59:50Z", "172.30.0.5", "old.com", 443, false),
-                line("2026-11-20T09:59:59Z", "172.30.0.5", "skew.com", 443, false),
-                line("2026-11-20T10:00:01Z", "172.30.0.5", "evil.com", 443, false),
-                line("2026-11-20T10:00:02Z", "172.30.0.5", "api.anthropic.com", 443, true),
-                line("2026-11-20T10:00:03Z", "172.30.0.6", "evil.com", 443, false),
-                "not json",
-                line("2026-11-20T10:00:04Z", "::ffff:172.30.0.5", "evil.com", 443, false),
-                line("2026-11-20T10:00:05Z", "172.30.0.5", "x.io", 80, false));
 
-        assertThat(EgressGateway.parse(lines, "172.30.0.5", since)).containsExactly(
-                new BlockedRequest("skew.com", 443, 1), new BlockedRequest("evil.com", 443, 2), new BlockedRequest("x.io", 80, 1));
+    static String refused(String client, String host) {
+        return line("2026-11-20T10:00:01Z", client, host, 443, false);
     }
 
     @Test
-    void blockedReadsTheLogInTheGateway() throws IOException {
-        ops.catOutput = List.of(line("2026-11-20T10:00:01Z", "172.30.0.5", "evil.com", 443, false));
-        List<BlockedRequest> blocked = gateway(List.of("a.com")).blocked("172.30.0.5", Instant.parse("2026-11-20T10:00:00Z"));
+    void parseKeepsRefusalsFromThisClientOnly() {
+        List<String> lines = List.of(
+                refused("172.30.0.5", "evil.com"),
+                line("2026-11-20T10:00:02Z", "172.30.0.5", "api.anthropic.com", 443, true),
+                refused("172.30.0.6", "evil.com"),
+                "not json",
+                refused("::ffff:172.30.0.5", "evil.com"),
+                line("2026-11-20T10:00:05Z", "172.30.0.5", "x.io", 80, false));
 
-        assertThat(ops.log).contains("exec playforge-egress cat /tmp/egress.jsonl");
-        assertThat(blocked).containsExactly(new BlockedRequest("evil.com", 443, 1));
+        assertThat(EgressGateway.parse(lines, "172.30.0.5")).containsExactly(
+                new BlockedRequest("evil.com", 443, 2), new BlockedRequest("x.io", 80, 1));
+    }
+
+    @Test
+    void parseShowsOnlyTheMainDomainOfPlausibleNames() {
+        // Whatever the sandbox puts in a host name ends up in the published story: no room for a smuggled secret.
+        List<String> lines = List.of(
+                refused("172.30.0.5", "telemetry.tracker.example.com"),
+                refused("172.30.0.5", "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz0123456789.evil.com"),
+                refused("172.30.0.5", "abcdefghijklmnopqrstuvwxyz0123456789abcdef.com"),
+                refused("172.30.0.5", "SECRET TOKEN"),
+                refused("172.30.0.5", "(invalid)"),
+                refused("172.30.0.5", "10.0.0.8"));
+
+        assertThat(EgressGateway.parse(lines, "172.30.0.5")).containsExactly(
+                new BlockedRequest("example.com", 443, 1), new BlockedRequest("evil.com", 443, 1),
+                new BlockedRequest("(invalid)", 443, 3), new BlockedRequest("10.0.0.8", 443, 1));
+    }
+
+    @Test
+    void parseListsAtMostTwentyTargets() {
+        List<String> lines = new ArrayList<>();
+        for (int i = 0; i < 30; i++) lines.add(refused("172.30.0.5", "host" + i + ".com"));
+        assertThat(EgressGateway.parse(lines, "172.30.0.5")).hasSize(20);
+    }
+
+    @Test
+    void blockedReadsOnlyLinesAfterTheCursor() throws IOException {
+        ops.catOutput = List.of("7", refused("172.30.0.5", "evil.com"));
+        EgressGateway.Slice slice = gateway(List.of("a.com")).blocked("172.30.0.5", 6);
+
+        assertThat(ops.log).anyMatch(l -> l.startsWith("exec playforge-egress sh -c") && l.contains("tail -n +7 /tmp/egress.jsonl"));
+        assertThat(slice.blocked()).containsExactly(new BlockedRequest("evil.com", 443, 1));
+        assertThat(slice.next()).isEqualTo(7);
+    }
+
+    @Test
+    void aRecreatedGatewayLogIsReadFromTheStart() throws IOException {
+        ops.catOutput = List.of("2"); // the log is shorter than the cursor: the gateway was recreated
+        EgressGateway.Slice slice = gateway(List.of("a.com")).blocked("172.30.0.5", 50);
+
+        assertThat(ops.log).anyMatch(l -> l.contains("tail -n +1 /tmp/egress.jsonl"));
+        assertThat(slice.next()).isLessThan(50);
+    }
+
+    @Test
+    void lineCountReadsTheLogLength() throws IOException {
+        ops.catOutput = List.of("12");
+        assertThat(gateway(List.of("a.com")).lineCount()).isEqualTo(12);
     }
 
     @Test
     void unreadableLogMeansNothingBlocked() throws IOException {
         ops.catExit = 1;
-        assertThat(gateway(List.of("a.com")).blocked("172.30.0.5", Instant.EPOCH)).isEmpty();
-        assertThat(gateway(List.of("a.com")).blocked("", Instant.EPOCH)).isEmpty();
+        EgressGateway g = gateway(List.of("a.com"));
+        assertThat(g.blocked("172.30.0.5", 3).blocked()).isEmpty();
+        assertThat(g.blocked("172.30.0.5", 3).next()).isEqualTo(3);
+        assertThat(g.blocked("", 3).blocked()).isEmpty();
+    }
+
+    @Test
+    void aGatewayThatCannotReachTheInternetIsRemoved() throws IOException {
+        Ops failing = new Ops() {
+            @Override public void connect(String network, String containerId) {
+                throw new IllegalStateException("connect failed");
+            }
+            @Override public void remove(String id) { log.add("remove " + id); }
+        };
+        Path script = dir.resolve("egress.mjs");
+        Files.writeString(script, "// gateway");
+        EgressGateway g = new EgressGateway(failing, "img", script, List.of("a.com"), "");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(g::ensure).hasMessageContaining("connect failed");
+        assertThat(failing.log).contains("remove gw1");
     }
 }

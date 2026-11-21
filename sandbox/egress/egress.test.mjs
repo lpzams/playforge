@@ -103,6 +103,17 @@ test('CONNECT to an allowed host on another port is refused', async () => {
   assert.equal(g.log[0].allowed, false);
 });
 
+test('a CONNECT target that is not a host name is logged as invalid, never verbatim', async () => {
+  const g = await gateway({ allow: ['example.org'] });
+  for (const target of ['SECRET-Token_123', 'sk-ant/abc:443', 'a"b.com:443', `${'x'.repeat(300)}.com:443`]) {
+    const { status } = await connect(g.port, target);
+    assert.ok(status === 403 || status === 400, `refused: ${status}`); // Node's parser answers 400 to some
+  }
+  assert.ok(g.log.length >= 3);
+  assert.ok(g.log.every((e) => e.host === '(invalid)' && !e.allowed));
+  assert.ok(!JSON.stringify(g.log).includes('SECRET') && !JSON.stringify(g.log).includes('xxxx'));
+});
+
 test('plain HTTP requests are refused and logged', async () => {
   const g = await gateway({ allow: ['example.org'] });
   const { status } = await rawRequest(g.port, 'GET http://example.org/x HTTP/1.1\r\nHost: example.org\r\n\r\n');

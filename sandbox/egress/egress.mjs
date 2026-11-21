@@ -17,10 +17,15 @@ export function matches(host, rules) {
   });
 }
 
-/** Splits "host:port" (IPv6 in brackets allowed). */
+/** A DNS name or IPv4 literal; anything else (and so any smuggled secret) is never logged verbatim. */
+const HOST = /^[a-z0-9.-]{1,253}$/;
+
+/** Splits "host:port"; null unless the host is a plausible name. */
 function target(authority) {
-  const m = /^(\[[^\]]+\]|[^:]+):(\d+)$/.exec(authority ?? '');
-  return m ? { host: norm(m[1]), port: Number(m[2]) } : null;
+  const m = /^([^:]+):(\d{1,5})$/.exec(authority ?? '');
+  if (!m) return null;
+  const host = norm(m[1]);
+  return HOST.test(host) ? { host, port: Number(m[2]) } : null;
 }
 
 /** Opens a tunnel to host:port through an HTTP proxy; resolves with the socket after its 200. */
@@ -75,6 +80,7 @@ export function createEgress({ allow, ports = [443], upstream, log = () => {}, u
     } catch {
       host = norm((req.headers.host ?? '').split(':')[0]);
     }
+    if (!HOST.test(host)) host = '(invalid)';
     record(req.socket.remoteAddress, host, port, false);
     res.writeHead(403, { 'Content-Type': 'text/plain' }).end('egress: only HTTPS (CONNECT) to allowed hosts\n');
   });
@@ -83,7 +89,7 @@ export function createEgress({ allow, ports = [443], upstream, log = () => {}, u
     client.on('error', () => {});
     const t = target(req.url);
     const ok = !!t && ports.includes(t.port) && matches(t.host, allow);
-    record(client.remoteAddress, t?.host ?? String(req.url), t?.port ?? 0, ok);
+    record(client.remoteAddress, t?.host ?? '(invalid)', t?.port ?? 0, ok);
     if (!ok) {
       client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
       return;

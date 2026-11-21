@@ -26,6 +26,8 @@ public class DockerSandbox implements Sandbox {
     private final EgressGateway egress;
     private final AtomicBoolean closed = new AtomicBoolean();
     private volatile String ip;
+    /** Position in the gateway's log up to which this sandbox's refusals were reported. */
+    private int logLine;
 
     public DockerSandbox(String containerId, ContainerPool pool, DockerOps ops) {
         this(containerId, pool, ops, null);
@@ -37,14 +39,28 @@ public class DockerSandbox implements Sandbox {
         this.pool = pool;
         this.ops = ops;
         this.egress = egress;
+        if (egress != null) {
+            // Refusals logged before this sandbox existed (an earlier container may have had the same IP) don't count.
+            try {
+                logLine = egress.lineCount();
+            } catch (RuntimeException e) {
+                log.warn("could not read the egress log length: {}", e.getMessage());
+            }
+        }
     }
 
+    /**
+     * Refusals logged since the previous call (or since the sandbox was handed out). Steps run one after another in
+     * a sandbox, so "since the previous call" is the step that just ended; {@code since} is not needed.
+     */
     @Override
-    public List<BlockedRequest> blockedSince(Instant since) {
+    public synchronized List<BlockedRequest> blockedSince(Instant since) {
         if (egress == null) return List.of();
         try {
             if (ip == null || ip.isEmpty()) ip = ops.containerIp(containerId, EgressGateway.NETWORK);
-            return egress.blocked(ip, since);
+            EgressGateway.Slice slice = egress.blocked(ip, logLine);
+            logLine = slice.next();
+            return slice.blocked();
         } catch (RuntimeException e) {
             log.warn("could not read refused requests of {}: {}", containerId, e.getMessage());
             return List.of();
