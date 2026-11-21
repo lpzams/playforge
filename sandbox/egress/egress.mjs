@@ -58,15 +58,19 @@ function direct(host, port, timeoutMs) {
   return new Promise((resolve, reject) => {
     const sock = net.connect(port, host);
     const timer = setTimeout(() => { sock.destroy(); reject(new Error('connect timeout')); }, timeoutMs);
-    sock.once('connect', () => { clearTimeout(timer); sock.off('error', reject); resolve(sock); });
-    sock.once('error', (e) => { clearTimeout(timer); reject(e); });
+    const onError = (e) => { clearTimeout(timer); reject(e); };
+    sock.once('error', onError);
+    // The caller attaches its own error handler right after this resolves (same tick, before any I/O).
+    sock.once('connect', () => { clearTimeout(timer); sock.off('error', onError); resolve(sock); });
   });
 }
 
 /**
- * @param {{allow: string[], ports?: number[], upstream?: string, log?: (e: object) => void, upstreamTimeoutMs?: number}} opts
+ * @param {{allow: string[], ports?: number[], upstream?: string, log?: (e: object) => void,
+ *          upstreamTimeoutMs?: number, maxConnections?: number}} opts
+ *   maxConnections caps open client sockets so one sandbox cannot starve the shared gateway.
  */
-export function createEgress({ allow, ports = [443], upstream, log = () => {}, upstreamTimeoutMs = 10_000 }) {
+export function createEgress({ allow, ports = [443], upstream, log = () => {}, upstreamTimeoutMs = 10_000, maxConnections = 256 }) {
   const record = (client, host, port, allowed) =>
     log({ ts: new Date().toISOString(), client: client ?? '', host, port, allowed });
 
@@ -84,6 +88,7 @@ export function createEgress({ allow, ports = [443], upstream, log = () => {}, u
     record(req.socket.remoteAddress, host, port, false);
     res.writeHead(403, { 'Content-Type': 'text/plain' }).end('egress: only HTTPS (CONNECT) to allowed hosts\n');
   });
+  server.maxConnections = maxConnections; // further sockets are closed on accept
 
   server.on('connect', async (req, client, head) => {
     client.on('error', () => {});
@@ -104,6 +109,10 @@ export function createEgress({ allow, ports = [443], upstream, log = () => {}, u
       return;
     }
     remote.on('error', () => client.destroy());
+    if (client.destroyed) { // the client left while we were connecting; its 'close' has already fired
+      remote.destroy();
+      return;
+    }
     client.on('close', () => remote.destroy());
     remote.on('close', () => client.destroy());
     client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
@@ -122,6 +131,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     allow: list(process.env.EGRESS_ALLOW),
     ports: list(process.env.EGRESS_PORTS || '443').map(Number),
     upstream: process.env.EGRESS_UPSTREAM || undefined,
+    maxConnections: Number(process.env.EGRESS_MAX_CONNECTIONS) || undefined,
     log: (e) => {
       const line = JSON.stringify(e);
       console.log(line);
