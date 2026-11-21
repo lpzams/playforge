@@ -146,6 +146,11 @@ public class CliDockerOps implements DockerOps {
     }
 
     @Override
+    public void removeNamed(String name) {
+        runner.run(List.of(docker, "rm", "-f", name), Map.of(), null, SHORT, new CancellationToken(), l -> { });
+    }
+
+    @Override
     public boolean healthy(String containerId) {
         try {
             return runner.run(List.of(docker, "exec", containerId, "true"), Map.of(), null, SHORT,

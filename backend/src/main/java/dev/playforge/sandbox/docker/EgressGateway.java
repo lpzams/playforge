@@ -21,6 +21,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * The only way out of the sandbox network. Sandboxes sit on an internal Docker network (no route out); this
@@ -39,6 +40,14 @@ public class EgressGateway {
     static final String CONFIG_LABEL = "playforge.egress.config";
     private static final String SCRIPT_TARGET = "/egress/egress.mjs";
     private static final ObjectMapper JSON = new ObjectMapper();
+    /** Exits 0 once the proxy accepts connections. No double quotes: Windows process creation mangles them. */
+    static final String LISTENING = "require('net').connect(3128,'127.0.0.1')"
+            + ".on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))";
+
+    /** Held while ensure() runs docker commands: a lock, not synchronized, so virtual threads don't pin a carrier. */
+    private final ReentrantLock lock = new ReentrantLock();
+    private Duration pollInterval = Duration.ofMillis(200);
+    private Duration readyTimeout = Duration.ofSeconds(5);
 
     private final DockerOps ops;
     private final String image;
@@ -55,7 +64,16 @@ public class EgressGateway {
     }
 
     /** Makes sure the network exists and a gateway with this configuration runs. Idempotent; cheap when all is up. */
-    public synchronized void ensure() {
+    public void ensure() {
+        lock.lock();
+        try {
+            ensureLocked();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void ensureLocked() {
         ops.ensureNetwork(NETWORK, true);
         String hash = configHash();
         if (!ops.findRunning(Map.of(LABEL, "app", CONFIG_LABEL, hash)).isEmpty()) return;
@@ -67,6 +85,8 @@ public class EgressGateway {
                 List.of(new DockerRunSpec.Mount(script.toString(), SCRIPT_TARGET)), "0.5", "128m", 64,
                 Map.of(LABEL, "app", CONFIG_LABEL, hash), NAME, NETWORK, "egress", env,
                 List.of("node", SCRIPT_TARGET));
+        // An unlabeled leftover with our name would make every run fail with a name conflict.
+        ops.removeNamed(NAME);
         String id = ops.runDetached(spec);
         try {
             ops.connect("bridge", id);
@@ -75,8 +95,36 @@ public class EgressGateway {
             ops.remove(id);
             throw e;
         }
+        awaitListening();
         log.info("egress gateway started (allow: {}{})", String.join(", ", allow),
                 upstream.isEmpty() ? "" : ", upstream " + upstream);
+    }
+
+    /** Polling of a new gateway until it listens; shortened by tests. */
+    void readiness(Duration interval, Duration timeout) {
+        this.pollInterval = interval;
+        this.readyTimeout = timeout;
+    }
+
+    /** A sandbox's first CONNECT must not race the proxy's startup. Gives up with a warning, never throws. */
+    private void awaitListening() {
+        long deadline = System.nanoTime() + readyTimeout.toNanos();
+        while (true) {
+            try {
+                if (ops.exec(NAME, List.of("node", "-e", LISTENING), null, Duration.ofSeconds(5),
+                        new CancellationToken(), l -> { }).exitCode() == 0) return;
+            } catch (RuntimeException e) {
+                // not up yet: try again
+            }
+            if (System.nanoTime() >= deadline) break;
+            try {
+                Thread.sleep(pollInterval);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        log.warn("egress gateway not listening on 3128 after {} ms; continuing", readyTimeout.toMillis());
     }
 
     public void remove() {
@@ -89,7 +137,7 @@ public class EgressGateway {
 
     /** Variables that send a sandbox's traffic through the gateway. */
     public Map<String, String> sandboxEnv() {
-        return Map.of("HTTPS_PROXY", PROXY, "HTTP_PROXY", PROXY, "NO_PROXY", "localhost,127.0.0.1",
+        return Map.of("HTTPS_PROXY", PROXY, "HTTP_PROXY", PROXY, "NO_PROXY", "localhost,127.0.0.1,::1",
                 "NODE_USE_ENV_PROXY", "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
     }
 

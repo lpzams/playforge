@@ -37,6 +37,9 @@ public interface DockerOps {
     /** {@code docker rm -f}; a missing container is not an error. */
     void remove(String containerId);
 
+    /** {@code docker rm -f <name>}: removes the container with exactly this name; a missing one is not an error. */
+    void removeNamed(String name);
+
     boolean healthy(String containerId);
 
     /** Force-removes every container carrying all of these labels; returns how many were removed. */
