@@ -38,6 +38,11 @@ class ContainerPoolTest {
             calls.add("removeLabeled " + labels);
             return 0;
         }
+        @Override public List<String> findRunning(Map<String, String> labels) { return List.of(); }
+        @Override public void ensureNetwork(String name, boolean internal) { }
+        @Override public void connect(String network, String containerId) { }
+        @Override public void removeNamed(String name) { calls.add("removeNamed " + name); }
+        @Override public String containerIp(String containerId, String network) { return ""; }
         @Override public ExecResult exec(String id, List<String> cmd, byte[] stdin, Duration t, CancellationToken c, Consumer<String> out) {
             return new ExecResult(0, "");
         }
@@ -56,6 +61,34 @@ class ContainerPoolTest {
     @AfterEach
     void stop() {
         pool.shutdown();
+    }
+
+    @Test
+    void prepareRunsBeforeEachContainerAndItsFailureIsTheCreateError() {
+        List<String> order = new CopyOnWriteArrayList<>();
+        FakeDockerOps recording = new FakeDockerOps() {
+            @Override public String runDetached(DockerRunSpec spec) {
+                order.add("run");
+                return super.runDetached(spec);
+            }
+        };
+        ContainerPool prepared = new ContainerPool(recording, SPEC, 2, false, () -> order.add("prepare"));
+        try {
+            prepared.start();
+            await().atMost(Duration.ofSeconds(5)).until(() -> prepared.idleCount() == 2);
+            assertThat(order).containsExactly("prepare", "run", "prepare", "run");
+        } finally {
+            prepared.shutdown();
+        }
+
+        ContainerPool broken = new ContainerPool(new FakeDockerOps(), SPEC, 1, false, () -> {
+            throw new IllegalStateException("gateway down");
+        });
+        try {
+            assertThatThrownBy(() -> broken.acquire(Duration.ofSeconds(2))).hasMessageContaining("gateway down");
+        } finally {
+            broken.shutdown();
+        }
     }
 
     @Test

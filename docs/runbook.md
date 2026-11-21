@@ -58,13 +58,26 @@ curl -X POST localhost:8090/api/runs/<runId>/cancel     # 取消
   docker rm -f $(docker ps -aq --filter label=playforge.pool=app)
   ```
 
+## 网络白名单
+
+沙箱容器在内部网络 `playforge-sandbox` 里，只能经网关容器 `playforge-egress` 访问白名单域名（决策 11）。后端启动后会自动创建网络和网关。
+
+- **看网关日志**（每行一个放行/拒绝决定）：
+  ```bash
+  docker exec playforge-egress cat /tmp/egress.jsonl
+  ```
+- **加域名**：改 `backend/src/main/resources/application.yml` 里的 `playforge.sandbox.egress.allow`，重启后端，网关会按新配置自动重建。
+- **需要经宿主机代理出网**：设置 `playforge.sandbox.egress.upstream: http://host.docker.internal:7899`。
+- **临时关闭**：`playforge.sandbox.egress.enabled: false`，恢复为默认 bridge 网络、不设代理。
+- 生成过程中出现"拦截了 N 次外联：xxx"时，先判断是不是必需的域名：是就加进白名单；不是（例如 AI 写的代码想访问某个外部网站），说明拦截起了作用。
+
 ## 已知限制
 
 - Codex 自带的 bwrap 沙箱在容器内起不来，所以以 `danger-full-access` 运行。审查结束后，编排器会用宿主机的版本把容器整个覆盖回去，审查员的任何改动都会被丢弃。
 - Claude 有时用 Bash 的 heredoc 写文件，这种情况下不会产生 `FILE_CHANGED` 事件。以后计划改为从 git diff 推算。
 - 试玩只做硬性检查（能构建、能加载、有探针、无报错、不是空白、按键有反应、能重开），"好不好玩"的评分在 P6。试玩截图目前只留在容器内。
 - **Codex 登录可能失效（未验证）**：每个容器拿到的是 `auth.json` 的一份只读快照。登录大约一周后，Codex 会在容器里刷新 token，刷新结果不会写回宿主机。如果 OpenAI 的刷新 token 是一次性的，宿主机上那份就会作废。表现为：审查步骤失败，报认证错误，同时你自己在终端里用 `codex` 也提示要重新登录。**处理方法：在宿主机重新执行 `codex login`，然后重启后端。**之所以没有把容器里刷新后的凭证自动拷回宿主机，是因为容器里运行着不受信任的代码，让它往宿主机写凭证文件，风险比这个问题本身更大。
-- 容器内的 Agent 能读到凭证（环境变量和 `auth.json`）。凭证不会出现在事件流和回放里（统一替换为 `[REDACTED]`），但容器网络是开放的，这是决策 6 的已知取舍。
+- 容器内的 Agent 能读到凭证（环境变量和 `auth.json`）。凭证不会出现在事件流和回放里（统一替换为 `[REDACTED]`），容器只能通过出口网关访问白名单里的域名（见上文"网络白名单"）。
 
 ## 验收记录（2026-11-09）
 

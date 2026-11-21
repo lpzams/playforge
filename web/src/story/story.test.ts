@@ -10,6 +10,20 @@ function ev(type: string, payload: Record<string, unknown>, atSec: number, sourc
 const step = (type: string, at: number, trigger = 'NONE') => ev('STEP_STARTED', { type, trigger, round: 0 }, at);
 
 describe('story', () => {
+  it('tells which outbound requests the sandbox network refused in a step', () => {
+    const s = buildStory([
+      ev('RUN_STARTED', {}, 0),
+      step('CODE', 1),
+      ev('NETWORK_BLOCKED', { requests: [{ host: 'evil.com', port: 443, count: 2 }, { host: 'x.io', port: 8080, count: 1 }] }, 9),
+      ev('STEP_FINISHED', { status: 'DONE' }, 10),
+      step('REVIEW', 10),
+      ev('REVIEW_RESULT', { issues: [] }, 20),
+      ev('STEP_FINISHED', { status: 'DONE' }, 20),
+    ], { previewBase: null });
+    expect(s.entries[0].blocked).toBe('拦截了 3 次外联：evil.com、x.io:8080');
+    expect(s.entries[1].blocked).toBe('');
+  });
+
   it('tells a finished run step by step with durations', () => {
     const s = buildStory([
       ev('RUN_STARTED', {}, 0),

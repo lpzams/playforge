@@ -8,3 +8,5 @@ node_modules/
 .superpowers/
 previews/
 web/dist/
+hs_err_pid*.log
+replay_pid*.log

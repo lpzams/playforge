@@ -20,6 +20,8 @@ import java.util.Map;
 @ConditionalOnProperty(name = "playforge.sandbox.provider", havingValue = "docker")
 public class DockerSandboxProvider implements SandboxProvider {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(DockerSandboxProvider.class);
+
     static final String CODEX_AUTH_TARGET = "/mnt/creds/codex/auth.json";
     /** Marks containers owned by the application's pool, so a restart can remove ones a hard stop left behind. */
     static final String POOL_LABEL = "playforge.pool";
@@ -27,6 +29,8 @@ public class DockerSandboxProvider implements SandboxProvider {
     private final PlayforgeProperties.SandboxConfig config;
     private final DockerOps ops;
     private final ContainerPool pool;
+    /** Null when the sandbox network is open (egress disabled). */
+    private final EgressGateway egress;
 
     public DockerSandboxProvider(PlayforgeProperties props, ProcessRunner runner) {
         this.config = props.sandbox();
@@ -37,7 +41,16 @@ public class DockerSandboxProvider implements SandboxProvider {
         DockerRunSpec spec = new DockerRunSpec(config.image(),
                 Map.of("CLAUDE_CODE_OAUTH_TOKEN", "PLAYFORGE_CLAUDE_TOKEN"), mounts, "2", "4g", 512,
                 Map.of(POOL_LABEL, "app"));
-        this.pool = new ContainerPool(ops, spec, config.poolSize(), true);
+        if (config.egressEnabled()) {
+            PlayforgeProperties.Egress e = config.egress();
+            this.egress = new EgressGateway(ops, config.image(), Path.of(e.script().trim()),
+                    e.allow() == null ? List.of() : e.allow(), e.upstream());
+            this.pool = new ContainerPool(ops, spec.withNetwork(egress.network(), egress.sandboxEnv()),
+                    config.poolSize(), true, egress::ensure);
+        } else {
+            this.egress = null;
+            this.pool = new ContainerPool(ops, spec, config.poolSize(), true);
+        }
     }
 
     @PostConstruct
@@ -48,15 +61,23 @@ public class DockerSandboxProvider implements SandboxProvider {
     @PreDestroy
     void stop() {
         pool.shutdown();
+        if (egress != null) egress.remove();
     }
 
     @Scheduled(fixedDelayString = "PT60S", initialDelayString = "PT60S")
     void healthCheck() {
+        if (egress != null && ops.available()) {
+            try {
+                egress.ensure(); // Docker Desktop restarts wipe the gateway
+            } catch (RuntimeException e) {
+                log.warn("egress gateway check failed: {}", e.getMessage());
+            }
+        }
         pool.healthCheck();
     }
 
     @Override
     public Sandbox acquire(String projectId) {
-        return new DockerSandbox(pool.acquire(config.acquireTimeout()), pool, ops);
+        return new DockerSandbox(pool.acquire(config.acquireTimeout()), pool, ops, egress);
     }
 }

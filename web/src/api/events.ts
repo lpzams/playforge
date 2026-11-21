@@ -3,10 +3,11 @@ import type { RunEvent } from './types';
 /** Most recent events kept on screen; older ones are folded into a single "N earlier events" line. */
 export const FEED_LIMIT = 500;
 
-/** Every backend RunEventType; the SSE "event:" name is the type. */
-const EVENT_TYPES = [
+/** Every backend RunEventType; the SSE "event:" name is the type. A test keeps it in step with the backend enum. */
+export const EVENT_TYPES = [
   'RUN_STARTED', 'STEP_STARTED', 'AGENT_TEXT', 'TOOL_CALL', 'TOOL_RESULT', 'USAGE', 'FILE_CHANGED',
   'REVIEW_RESULT', 'REVIEW_UNPARSEABLE', 'PLAYTEST_RESULT', 'FUN_SCORE', 'RETRY_SCHEDULED', 'STEP_FINISHED', 'RUN_FINISHED', 'LOG',
+  'NETWORK_BLOCKED',
 ] as const;
 
 export interface RunStream {

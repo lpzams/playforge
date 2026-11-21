@@ -5,6 +5,7 @@ import dev.playforge.process.ExecResult;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -28,6 +29,11 @@ public interface Sandbox extends AutoCloseable {
      * @throws IllegalStateException if the directory does not exist in the sandbox
      */
     void exportDir(String relativePath, Path hostDir);
+
+    /** Outbound connections refused for this sandbox since {@code since}; none when nothing filters its network. */
+    default List<BlockedRequest> blockedSince(Instant since) {
+        return List.of();
+    }
 
     @Override
     void close();

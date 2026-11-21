@@ -37,8 +37,23 @@ public interface DockerOps {
     /** {@code docker rm -f}; a missing container is not an error. */
     void remove(String containerId);
 
+    /** {@code docker rm -f <name>}: removes the container with exactly this name; a missing one is not an error. */
+    void removeNamed(String name);
+
     boolean healthy(String containerId);
 
     /** Force-removes every container carrying all of these labels; returns how many were removed. */
     int removeLabeled(java.util.Map<String, String> labels);
+
+    /** Ids of running containers carrying all of these labels. */
+    List<String> findRunning(java.util.Map<String, String> labels);
+
+    /** Creates the network unless it exists; {@code internal} = no route out of the host. */
+    void ensureNetwork(String name, boolean internal);
+
+    /** Attaches a running container to another network. */
+    void connect(String network, String containerId);
+
+    /** The container's IP address on that network; empty when it is not attached. */
+    String containerIp(String containerId, String network);
 }

@@ -45,9 +45,23 @@ public record PlayforgeProperties(String workspaceRoot, Orchestration orchestrat
     /**
      * @param provider       {@code local} (host directory, demo engines) or {@code docker}
      * @param codexAuthFile  host path of Codex credentials, mounted read-only when it exists
+     * @param egress         outbound network of docker sandboxes (allow list through a gateway)
      */
     public record SandboxConfig(String provider, String image, int poolSize, Duration acquireTimeout,
-                                String codexAuthFile, String dockerCommand) {}
+                                String codexAuthFile, String dockerCommand, Egress egress) {
+
+        /** On unless explicitly disabled. */
+        public boolean egressEnabled() {
+            return egress != null && !Boolean.FALSE.equals(egress.enabled());
+        }
+    }
+
+    /**
+     * @param upstream optional HTTP proxy the gateway connects through (e.g. http://host.docker.internal:7899)
+     * @param allow    hosts sandboxes may reach over HTTPS; "*.example.com" allows strict subdomains
+     * @param script   host path of sandbox/egress/egress.mjs
+     */
+    public record Egress(Boolean enabled, String upstream, java.util.List<String> allow, String script) {}
 
     /** Where built games are published for /preview (one directory per project, outside any git repo). */
     public Path previewDir() {

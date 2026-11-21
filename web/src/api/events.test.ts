@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { openRunStream } from './events';
+import runEventTypeJava from '../../../backend/src/main/java/dev/playforge/event/RunEventType.java?raw';
+import { EVENT_TYPES, openRunStream } from './events';
 import type { RunEvent } from './types';
 
 /** Controllable stand-in for the browser EventSource. */
@@ -81,5 +82,16 @@ describe('openRunStream', () => {
       'REVIEW_RESULT', 'REVIEW_UNPARSEABLE', 'PLAYTEST_RESULT', 'RETRY_SCHEDULED', 'STEP_FINISHED', 'RUN_FINISHED', 'LOG']) {
       expect(fake.listeners.has(t), t).toBe(true);
     }
+  });
+});
+
+describe('event types', () => {
+  it('subscribes to every type the backend publishes', () => {
+    // An event type missing here never reaches the page (SSE delivers only subscribed names).
+    const java = runEventTypeJava;
+    const body = java.slice(java.indexOf('{') + 1, java.lastIndexOf('}')).replace(/\/\*[\s\S]*?\*\//g, '');
+    const backend = body.split(',').map((s: string) => s.trim()).filter(Boolean);
+    expect(backend).toContain('NETWORK_BLOCKED');
+    expect([...EVENT_TYPES].sort()).toEqual([...backend].sort());
   });
 });

@@ -23,6 +23,8 @@ export interface Entry {
   checks: string;
   ai: AiBlock | null;
   hints: string[];
+  /** Outbound requests the sandbox network refused in this step ('' when none). */
+  blocked: string;
 }
 
 export interface Story {
@@ -116,7 +118,7 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
       : Date.parse((finishedEvent ?? seg.events[seg.events.length - 1] ?? { ts: new Date(seg.start).toISOString() }).ts);
     const entry: Entry = {
       key: `${i}`, actor, cls, mono, running, time: running ? '' : duration(Math.max(0, end - seg.start)),
-      lines: [], quotes: [], failures: [], checks: '', ai: null, hints: [],
+      lines: [], quotes: [], failures: [], checks: '', ai: null, hints: [], blocked: blockedLine(seg.events),
     };
     const say = (s: string) => entry.lines.push(s);
 
@@ -174,7 +176,7 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
       entries.push({
         key: `${i}-judge`, actor: 'AI 评委', cls: 'judge', mono: '评', running: false, time: '看截图打分，仅供参考',
         lines: [scoreLine(fun.scores as Record<string, number>), String(fun.summary ?? '')].filter(Boolean),
-        quotes: [], failures: [], checks: '', ai: null, hints: arr<string>(fun.suggestions).map(String),
+        quotes: [], failures: [], checks: '', ai: null, hints: arr<string>(fun.suggestions).map(String), blocked: '',
       });
     }
   });
@@ -182,6 +184,16 @@ export function buildStory(events: RunEvent[], opts: { previewBase: string | nul
   const raw = (finishedEvent?.payload.reason as string | null | undefined) ?? null;
   const reason = finished === 'CANCELLED' ? '你取消了这一版，游戏保持上一版不变。' : raw;
   return { entries, note, finished, reason };
+}
+
+/** "拦截了 3 次外联：evil.com、x.io:8080" for the step's NETWORK_BLOCKED events. */
+function blockedLine(events: RunEvent[]): string {
+  const reqs = events.filter((e) => e.type === 'NETWORK_BLOCKED')
+    .flatMap((e) => arr<{ host: string; port: number; count: number }>(e.payload.requests));
+  if (!reqs.length) return '';
+  const total = reqs.reduce((n, r) => n + (Number(r.count) || 1), 0);
+  const targets = [...new Set(reqs.map((r) => (Number(r.port) === 443 ? r.host : `${r.host}:${r.port}`)))];
+  return `拦截了 ${total} 次外联：${targets.join('、')}`;
 }
 
 function aiBlock(ai: Record<string, unknown> | undefined, previewBase: string | null): AiBlock | null {
