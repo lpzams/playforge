@@ -43,6 +43,7 @@ class EgressGatewayTest {
         }
         @Override public void ensureNetwork(String name, boolean internal) { log.add("network " + name + " " + internal); }
         @Override public void connect(String network, String containerId) { log.add("connect " + network + " " + containerId); }
+        @Override public void removeNamed(String name) { log.add("removeNamed " + name); }
         @Override public ExecResult exec(String id, List<String> cmd, byte[] stdin, Duration t, CancellationToken c, Consumer<String> out) {
             log.add("exec " + id + " " + String.join(" ", cmd));
             catOutput.forEach(out);
@@ -66,7 +67,8 @@ class EgressGatewayTest {
         gateway(List.of("api.anthropic.com", "chatgpt.com")).ensure();
 
         assertThat(ops.log).containsExactly("network playforge-sandbox true", "removeLabeled {playforge.egress=app}",
-                "run playforge-egress", "connect bridge gw1");
+                "removeNamed playforge-egress", "run playforge-egress", "connect bridge gw1",
+                "exec playforge-egress node -e " + EgressGateway.LISTENING);
         DockerRunSpec spec = ops.started.getFirst();
         assertThat(spec.image()).isEqualTo("playforge-sandbox:p4");
         assertThat(spec.network()).isEqualTo("playforge-sandbox");
@@ -117,7 +119,7 @@ class EgressGatewayTest {
     void sandboxEnvPointsAtTheGateway() throws IOException {
         assertThat(gateway(List.of("a.com")).sandboxEnv()).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "HTTPS_PROXY", "http://egress:3128", "HTTP_PROXY", "http://egress:3128",
-                "NO_PROXY", "localhost,127.0.0.1", "NODE_USE_ENV_PROXY", "1",
+                "NO_PROXY", "localhost,127.0.0.1,::1", "NODE_USE_ENV_PROXY", "1",
                 "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"));
     }
 
@@ -219,5 +221,64 @@ class EgressGatewayTest {
 
         org.assertj.core.api.Assertions.assertThatThrownBy(g::ensure).hasMessageContaining("connect failed");
         assertThat(failing.log).contains("remove gw1");
+    }
+
+    @Test
+    void ensureDoesNotPinVirtualThreadCarriers() throws NoSuchMethodException {
+        // ensure() runs docker processes; a synchronized method would pin the virtual thread's carrier meanwhile.
+        assertThat(java.lang.reflect.Modifier.isSynchronized(EgressGateway.class.getMethod("ensure").getModifiers()))
+                .isFalse();
+    }
+
+    @Test
+    void aLeftoverContainerWithTheGatewaysNameIsRemovedBeforeStarting() throws IOException {
+        gateway(List.of("a.com")).ensure();
+        assertThat(ops.log.indexOf("removeNamed playforge-egress")).isGreaterThanOrEqualTo(0)
+                .isLessThan(ops.log.indexOf("run playforge-egress"));
+    }
+
+    @Test
+    void theListeningProbeHasNoDoubleQuotes() {
+        // Windows process creation mangles double quotes inside arguments.
+        assertThat(EgressGateway.LISTENING).doesNotContain("\"").contains("3128");
+    }
+
+    /** exec answers from a list of exit codes; the last one repeats. */
+    static class Probing extends Ops {
+        final List<Integer> exits;
+        int probes;
+        Probing(Integer... exits) { this.exits = List.of(exits); }
+        @Override public ExecResult exec(String id, List<String> cmd, byte[] stdin, Duration t, CancellationToken c, Consumer<String> out) {
+            log.add("exec " + id + " " + String.join(" ", cmd));
+            return new ExecResult(exits.get(Math.min(probes++, exits.size() - 1)), "");
+        }
+    }
+
+    @Test
+    void ensureWaitsUntilTheGatewayListens() throws IOException {
+        Probing probing = new Probing(1, 0);
+        Files.writeString(dir.resolve("egress.mjs"), "// gateway");
+        EgressGateway g = new EgressGateway(probing, "img", dir.resolve("egress.mjs"), List.of("a.com"), "");
+        g.readiness(Duration.ofMillis(1), Duration.ofSeconds(5));
+
+        g.ensure();
+
+        assertThat(probing.probes).isEqualTo(2);
+        assertThat(probing.log.getLast()).startsWith("exec playforge-egress node -e");
+    }
+
+    @Test
+    void aGatewayThatNeverListensIsGivenUpOnWithoutFailing() throws IOException {
+        Probing probing = new Probing(1);
+        Files.writeString(dir.resolve("egress.mjs"), "// gateway");
+        EgressGateway g = new EgressGateway(probing, "img", dir.resolve("egress.mjs"), List.of("a.com"), "");
+        g.readiness(Duration.ofMillis(5), Duration.ofMillis(100));
+
+        Instant start = Instant.now();
+        g.ensure();
+
+        assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofSeconds(3));
+        assertThat(probing.probes).isGreaterThan(1);
+        assertThat(probing.log).contains("run playforge-egress");
     }
 }

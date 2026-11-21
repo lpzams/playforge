@@ -207,4 +207,11 @@ class CliDockerOpsTest {
         assertThat(ops.findRunning(Map.of("a", "b"))).containsExactly("gw1");
         assertThat(runner.cmds.getFirst()).containsExactly("docker", "ps", "-q", "--filter", "label=a=b");
     }
+
+    @Test
+    void removeNamedForceRemovesByExactName() {
+        runner.exit = c -> 1; // "No such container" is not an error
+        ops.removeNamed("playforge-egress");
+        assertThat(runner.cmds.getFirst()).containsExactly("docker", "rm", "-f", "playforge-egress");
+    }
 }
