@@ -45,7 +45,7 @@ public class DockerSandboxProvider implements SandboxProvider {
             PlayforgeProperties.Egress e = config.egress();
             this.egress = new EgressGateway(ops, config.image(), Path.of(e.script().trim()),
                     e.allow() == null ? List.of() : e.allow(), e.upstream());
-            this.pool = new ContainerPool(ops, spec.withNetwork(EgressGateway.NETWORK, egress.sandboxEnv()),
+            this.pool = new ContainerPool(ops, spec.withNetwork(egress.network(), egress.sandboxEnv()),
                     config.poolSize(), true, egress::ensure);
         } else {
             this.egress = null;
